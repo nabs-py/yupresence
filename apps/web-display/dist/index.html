@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yupresence Classroom Display</title>
+    <script type="module" crossorigin src="/assets/index-BMsBZJ3j.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-ybcYiwf8.css">
+  </head>
+  <body>
+    <main id="app">
+      <section id="login-view" class="login-shell">
+        <form id="login-form" class="login-card">
+          <p class="eyebrow">Yupresence</p>
+          <h1>Classroom display</h1>
+          <p class="muted">Professor login required. This page only displays an active session.</p>
+          <label>Email<input id="email" type="email" autocomplete="username" required /></label>
+          <label>Password<input id="password" type="password" autocomplete="current-password" required /></label>
+          <p id="login-error" class="error" role="alert"></p>
+          <button id="login-button" type="submit">Log in</button>
+        </form>
+      </section>
+
+      <section id="waiting-view" class="waiting hidden">
+        <p class="eyebrow">Connected as professor</p>
+        <h1>No active session</h1>
+        <p>Start attendance from your phone. This display will connect automatically.</p>
+        <div class="pulse" aria-hidden="true"></div>
+        <button id="waiting-logout" class="secondary" type="button">Sign out</button>
+      </section>
+
+      <section id="session-view" class="session hidden">
+        <header>
+          <div>
+            <p class="eyebrow">Live attendance</p>
+            <h1 id="course-title">Course — Section</h1>
+            <p id="course-name" class="course-name"></p>
+          </div>
+          <div class="connection"><span id="connection-dot"></span><span id="connection-label">Connecting</span></div>
+        </header>
+
+        <div class="display-grid">
+          <div class="qr-panel">
+            <canvas id="qr-canvas" aria-label="Live attendance QR code"></canvas>
+            <p>Scan with Yupresence</p>
+            <small>Secure code refreshes every 10 seconds</small>
+          </div>
+          <div class="status-panel">
+            <div class="timer-block"><span>Time remaining</span><strong id="remaining-time">00:00</strong></div>
+            <div class="counters">
+              <div><strong id="present-count">0</strong><span>Present</span></div>
+              <div><strong id="pending-count">0</strong><span>Pending</span></div>
+              <div><strong id="flagged-count">0</strong><span>Flagged</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

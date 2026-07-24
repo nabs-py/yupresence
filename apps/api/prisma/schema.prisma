@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar
+  email     String    @unique @db.VarChar
+  password  String    @db.VarChar
+  role      String    @db.VarChar
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
+  student   Student?
+  professor Professor?
+  admin     Admin?
+
+  @@map("users")
+}
+
+model Student {
+  id         Int     @id @default(autoincrement())
+  userId     Int?    @unique @map("user_id")
+  studentId  String  @unique @map("student_id") @db.VarChar
+  department String? @db.VarChar
+  semester   Int?
+  deviceId   String? @map("device_id") @db.VarChar
+
+  user           User?               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  courseStudents CourseStudent[]
+  attendance     Attendance[]
+  notifications  Notification[]
+  warnings       AttendanceWarning[]
+  scanAttempts   ScanAttempt[]
+
+  @@map("students")
+}
+
+model Professor {
+  id         Int     @id @default(autoincrement())
+  userId     Int?    @unique @map("user_id")
+  employeeId String  @unique @map("employee_id") @db.VarChar
+  department String? @db.VarChar
+
+  user                 User?               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  courseProfessors     CourseProfessor[]
+  sessions             AttendanceSession[]
+  reviewedScanAttempts ScanAttempt[]       @relation("ScanAttemptReviewer")
+
+  @@map("professors")
+}
+
+model Admin {
+  id        Int     @id @default(autoincrement())
+  userId    Int?    @unique @map("user_id")
+  adminCode String? @map("admin_code") @db.VarChar
+
+  user User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("admins")
+}
+
+model Course {
+  id         Int    @id @default(autoincrement())
+  courseName String @map("course_name") @db.VarChar
+  courseCode String @unique @map("course_code") @db.VarChar
+  semester   Int?
+
+  courseStudents   CourseStudent[]
+  courseProfessors CourseProfessor[]
+  sections         CourseSection[]
+  sessions         AttendanceSession[]
+  warnings         AttendanceWarning[]
+
+  @@map("courses")
+}
+
+model CourseSection {
+  id       Int    @id @default(autoincrement())
+  courseId Int    @map("course_id")
+  section  String @db.VarChar
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([courseId, section])
+  @@map("course_sections")
+}
+
+model CourseStudent {
+  id        Int    @id @default(autoincrement())
+  courseId  Int?   @map("course_id")
+  studentId Int?   @map("student_id")
+  section   String @db.VarChar
+
+  course  Course?  @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student Student? @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([courseId, studentId])
+  @@map("course_students")
+}
+
+model CourseProfessor {
+  id          Int    @id @default(autoincrement())
+  courseId    Int?   @map("course_id")
+  professorId Int?   @map("professor_id")
+  section     String @db.VarChar
+
+  course    Course?    @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  professor Professor? @relation(fields: [professorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([courseId, professorId, section])
+  @@map("course_professors")
+}
+
+model AttendanceSession {
+  id                       Int       @id @default(autoincrement())
+  courseId                 Int?      @map("course_id")
+  professorId              Int?      @map("professor_id")
+  section                  String    @db.VarChar
+  latitude                 Float     @db.DoublePrecision
+  longitude                Float     @db.DoublePrecision
+  radius                   Int?      @default(40)
+  qrToken                  String?   @map("qr_token") @db.VarChar
+  previousQrToken          String?   @map("previous_qr_token") @db.VarChar
+  previousQrTokenRotatedAt DateTime? @map("previous_qr_token_rotated_at") @db.Timestamp(6)
+  status                   String?   @default("active") @db.VarChar
+  createdAt                DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  expiresAt                DateTime? @map("expires_at") @db.Timestamp(6)
+
+  course       Course?       @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  professor    Professor?    @relation(fields: [professorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attendance   Attendance[]
+  scanAttempts ScanAttempt[]
+
+  @@map("attendance_sessions")
+}
+
+model Attendance {
+  id             Int       @id @default(autoincrement())
+  sessionId      Int?      @map("session_id")
+  studentId      Int?      @map("student_id")
+  status         String    @db.VarChar
+  manualOverride Boolean   @default(false) @map("manual_override")
+  timestamp      DateTime? @default(now()) @db.Timestamp(6)
+
+  session AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student Student?           @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([sessionId, studentId])
+  @@map("attendance")
+}
+
+model ScanAttempt {
+  id                    Int       @id @default(autoincrement())
+  sessionId             Int?      @map("session_id")
+  studentId             Int       @map("student_id")
+  result                String    @db.VarChar
+  reasonCode            String?   @map("reason_code") @db.VarChar
+  reasonMessage         String?   @map("reason_message") @db.VarChar
+  deviceId              String?   @map("device_id") @db.VarChar
+  latitude              Float?    @db.DoublePrecision
+  longitude             Float?    @db.DoublePrecision
+  distanceMeters        Float?    @map("distance_meters") @db.DoublePrecision
+  reviewStatus          String    @default("pending") @map("review_status") @db.VarChar
+  reviewedAt            DateTime? @map("reviewed_at") @db.Timestamp(6)
+  reviewedByProfessorId Int?      @map("reviewed_by_professor_id")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  session             AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  student             Student            @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewedByProfessor Professor?         @relation("ScanAttemptReviewer", fields: [reviewedByProfessorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([sessionId, result, reviewStatus])
+  @@map("scan_attempts")
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  studentId Int?      @map("student_id")
+  title     String?   @db.VarChar
+  message   String?   @db.VarChar
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
+  student Student? @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("notifications")
+}
+
+model AttendanceWarning {
+  id                   Int      @id @default(autoincrement())
+  studentId            Int?     @map("student_id")
+  courseId             Int      @map("course_id")
+  absenceCount         Int      @map("absence_count")
+  attendancePercentage Decimal? @map("attendance_percentage") @db.Decimal
+  status               String?  @db.VarChar
+
+  student Student? @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([studentId, courseId])
+  @@map("attendance_warnings")
+}

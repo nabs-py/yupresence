@@ -1,0 +1,18 @@
+{
+  "name": "yupresence",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@yupresence/api",
+    "dev:mobile": "npm run start --workspace=@yupresence/mobile",
+    "dev:web-display": "npm run dev --workspace=@yupresence/web-display",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20.19.4"
+  }
+}

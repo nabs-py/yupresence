@@ -1,0 +1,6 @@
+node_modules/
+.env
+.env.local
+apps/mobile/.env
+apps/web-display/.env
+apps/api/.env
