@@ -147,8 +147,11 @@ export function SessionReviewPanels({ sessionId, token }: { sessionId: number; t
               <View style={styles.identity}>
                 <Text numberOfLines={2} style={styles.name}>{attempt.student_name}</Text>
                 <Text style={styles.studentId}>Student ID: {attempt.student_id}</Text>
-                <Text style={styles.reason}>{attempt.reason} · {attempt.attempt_count} {attempt.attempt_count === 1 ? "attempt" : "attempts"}</Text>
-                {attempt.details ? <Text numberOfLines={3} style={styles.details}>{attempt.details}</Text> : null}
+                <Text style={styles.confidence}>{attempt.confidence_score ?? 5}% confidence</Text>
+                {attempt.failures.map((failure) => (
+                  <Text key={failure.code} style={styles.reason}>{failure.heading}</Text>
+                ))}
+                <Text style={styles.attemptCount}>{attempt.attempt_count} {attempt.attempt_count === 1 ? "attempt" : "attempts"}</Text>
               </View>
               <View style={styles.actionColumn}>
                 <Pressable disabled={actionId !== null} onPress={() => void review(attempt.attempt_id, "reject")} style={styles.secondaryAction}>
@@ -182,7 +185,8 @@ const createStyles = (theme: AppTheme) => StyleSheet.create({
   name: { color: theme.colors.black, ...theme.typography.body, fontFamily: theme.fontFamily.semibold },
   studentId: { color: theme.colors.grey600, marginTop: 2, ...theme.typography.label },
   reason: { color: theme.colors.black, marginTop: theme.spacing.sm, ...theme.typography.label, fontFamily: theme.fontFamily.semibold },
-  details: { color: theme.colors.grey600, marginTop: 2, ...theme.typography.label },
+  confidence: { color: theme.colors.orange, marginTop: theme.spacing.sm, ...theme.typography.label, fontFamily: theme.fontFamily.semibold },
+  attemptCount: { color: theme.colors.grey600, marginTop: 2, ...theme.typography.label },
   actionColumn: { flexBasis: "32%", flexGrow: 0, flexShrink: 1, gap: theme.spacing.xs, maxWidth: 132, minWidth: 96 },
   primaryAction: { alignItems: "center", backgroundColor: theme.colors.orange, borderRadius: theme.radius.button, justifyContent: "center", minHeight: 44, paddingHorizontal: theme.spacing.sm },
   primaryActionLabel: { color: theme.colors.onAccent, textAlign: "center", ...theme.typography.label, fontFamily: theme.fontFamily.semibold },

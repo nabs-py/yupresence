@@ -82,17 +82,25 @@ function isScanTokenClaims(payload: string | JwtPayload): payload is ScanTokenCl
     Number.isInteger(payload.issued_at);
 }
 
-const attemptReasonLabels: Record<string, string> = {
-  SCAN_INVALID: "Invalid scan data",
-  TOKEN_INVALID: "Invalid QR token",
-  TOKEN_STALE: "Expired QR code",
-  DEVICE_NOT_REGISTERED: "Device not registered",
-  DEVICE_MISMATCH: "Device mismatch",
-  NOT_ENROLLED: "Not enrolled",
-  SECTION_MISMATCH: "Section mismatch",
-  OUTSIDE_GEOFENCE: "Out of range",
-  DUPLICATE_ATTENDANCE: "Duplicate attendance"
-};
+const softFailureCodes = ["TOKEN_STALE", "DEVICE_NOT_REGISTERED", "DEVICE_MISMATCH", "OUTSIDE_GEOFENCE"] as const;
+
+function isSoftFailureCode(code: string): boolean {
+  return softFailureCodes.includes(code as typeof softFailureCodes[number]);
+}
+
+function splitReasonCodes(reasonCode: string | null): string[] {
+  return reasonCode?.split("|").filter(Boolean) ?? [];
+}
+
+function professorFailureHeading(code: string, distanceMeters: number | null, radius: number): string | null {
+  if (code === "DEVICE_NOT_REGISTERED" || code === "DEVICE_MISMATCH") return "Device mismatch";
+  if (code === "TOKEN_STALE") return "Stale QR token";
+  if (code === "OUTSIDE_GEOFENCE") {
+    const metersOver = Math.max(0, Math.round((distanceMeters ?? radius) - radius));
+    return `Out of range by ${metersOver}m`;
+  }
+  return null;
+}
 
 async function recordDuplicateScan(input: {
   sessionId: number;
@@ -203,36 +211,26 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), async (reque
       code: string,
       message: string,
       sessionId: number | null = null,
-      distanceMeters: number | null = null
+      distanceMeters: number | null = null,
+      options: { reviewable?: boolean; storedReasonCode?: string; confidenceScore?: number | null } = {}
     ) => {
-      // Validation remains fail-fast. This separate lookup only decides whether
-      // a failed attempt is actionable for the professor, never its response.
-      const isEnrolledInSession = sessionId !== null && !nonReviewableFailureCodes.includes(code)
-        ? await prisma.attendanceSession.findUnique({
-            where: { id: sessionId },
-            select: { courseId: true, section: true }
-          }).then(async (failedSession) => {
-            if (!failedSession?.courseId) return false;
-            const enrollment = await prisma.courseStudent.findFirst({
-              where: { studentId: student.id, courseId: failedSession.courseId, section: failedSession.section },
-              select: { id: true }
-            });
-            return Boolean(enrollment);
-          })
-        : false;
+      // Only an exact course-section enrollment can create a reviewable flag.
+      // Hard rejections are always retained as audit-only attempts.
+      const isReviewable = options.reviewable === true && !nonReviewableFailureCodes.includes(code);
       await prisma.scanAttempt.create({
         data: {
           sessionId,
           studentId: student.id,
           result: "failed",
-          reasonCode: code,
+          reasonCode: options.storedReasonCode ?? code,
           reasonMessage: message,
-          reviewStatus: isEnrolledInSession ? "pending" : "not_required",
+          confidenceScore: isReviewable ? options.confidenceScore ?? null : null,
+          reviewStatus: isReviewable ? "pending" : "not_required",
           distanceMeters,
           ...inputMetadata
         }
       });
-      if (sessionId && isEnrolledInSession) {
+      if (sessionId && isReviewable) {
         await broadcastAttendanceState(sessionId);
       }
       response.status(httpStatus).json({ code, error: message });
@@ -252,7 +250,15 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), async (reque
         throw new Error("QR token is missing");
       }
       rawToken = qrEnvelope.token;
-      const verified = jwt.verify(rawToken, getJwtSecret());
+      let verified: string | JwtPayload;
+      try {
+        verified = jwt.verify(rawToken, getJwtSecret());
+      } catch (error) {
+        // A signed but expired QR still identifies a session. It is a soft
+        // timing signal, unlike malformed data or a bad signature.
+        if (!(error instanceof jwt.TokenExpiredError)) throw error;
+        verified = jwt.verify(rawToken, getJwtSecret(), { ignoreExpiration: true });
+      }
       if (!isScanTokenClaims(verified) ||
         qrEnvelope.session_id !== verified.session_id ||
         qrEnvelope.course_id !== verified.course_id ||
@@ -268,68 +274,97 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), async (reque
       return;
     }
 
-    // 2. The current QR is required, except for the just-rotated token during a tiny network grace window.
+    // Identify the session before evaluating the three soft checks together.
     const session = await prisma.attendanceSession.findUnique({
       where: { id: tokenClaims.session_id },
       include: { course: { select: { courseCode: true } } }
     });
-    const previousTokenIsWithinGracePeriod = Boolean(
-      session?.previousQrToken === rawToken &&
-      session.previousQrTokenRotatedAt &&
-      Date.now() - session.previousQrTokenRotatedAt.getTime() <= previousQrTokenGracePeriodMs
-    );
-    if (!session || session.status !== "active" || (session.qrToken !== rawToken && !previousTokenIsWithinGracePeriod) ||
-      session.courseId !== tokenClaims.course_id || session.section !== tokenClaims.section) {
-      await rejectAttempt(409, "TOKEN_STALE", "This QR token is no longer current. Scan the latest code.", session?.id ?? null);
+    if (!session) {
+      await rejectAttempt(409, "TOKEN_STALE", "This QR token is no longer current. Scan the latest code.");
       return;
     }
 
-    // 3. The scan must originate from the student's registered device.
-    if (!student.deviceId) {
-      await rejectAttempt(403, "DEVICE_NOT_REGISTERED", "This device is not registered for your account.", session.id);
-      return;
-    }
-    if (student.deviceId !== parsed.data.device_id) {
-      await rejectAttempt(403, "DEVICE_MISMATCH", "This scan came from a device that does not match your registered device.", session.id);
-      return;
-    }
-
-    // 4. Enrollment is checked first by course, then by the exact section for a distinct demo message.
+    // Enrollment is a hard boundary gate before any reviewable soft signal.
     const courseEnrollment = await prisma.courseStudent.findFirst({
-      where: { studentId: student.id, courseId: tokenClaims.course_id },
+      where: { studentId: student.id, courseId: session.courseId },
       select: { section: true }
     });
+    const isExactEnrollment = Boolean(courseEnrollment && courseEnrollment.section === session.section);
+
+    const currentTokenMatches = session.status === "active" &&
+      session.qrToken === rawToken &&
+      session.courseId === tokenClaims.course_id &&
+      session.section === tokenClaims.section;
+    const previousTokenIsWithinGracePeriod = Boolean(
+      session.status === "active" &&
+      session.previousQrToken === rawToken &&
+      session.previousQrTokenRotatedAt &&
+      Date.now() - session.previousQrTokenRotatedAt.getTime() <= previousQrTokenGracePeriodMs &&
+      session.courseId === tokenClaims.course_id &&
+      session.section === tokenClaims.section
+    );
+    const qrTimingScore = currentTokenMatches ? 100 : previousTokenIsWithinGracePeriod ? 70 : 20;
+
     if (!courseEnrollment) {
       await rejectAttempt(403, "NOT_ENROLLED", "You are not enrolled in this course.", session.id);
       return;
     }
-    if (courseEnrollment.section !== tokenClaims.section) {
+    if (!isExactEnrollment) {
       await rejectAttempt(
         403,
         "SECTION_MISMATCH",
-        `Section mismatch: you are enrolled in section ${courseEnrollment.section}, but this session is for section ${tokenClaims.section}.`,
+        `Section mismatch: you are enrolled in section ${courseEnrollment.section}, but this session is for section ${session.section}.`,
         session.id
       );
       return;
     }
 
-    // 5. GPS position must fall within the professor-configured session radius.
+    // The soft checks deliberately all run for an exactly enrolled student.
+    // Their combined outcome gives professors enough context to review a flag.
     const distanceMeters = haversineDistanceMeters(
       { latitude: parsed.data.latitude, longitude: parsed.data.longitude },
       { latitude: session.latitude, longitude: session.longitude }
     );
-    if (distanceMeters > (session.radius ?? 40)) {
+    const radius = session.radius ?? 40;
+    const deviceScore = student.deviceId && student.deviceId === parsed.data.device_id ? 100 : 0;
+    const geofenceScore = distanceMeters <= radius ? 100 : Math.max(0, 100 - 2 * (distanceMeters - radius));
+    const failures: Array<{ code: string; message: string }> = [];
+    if (!currentTokenMatches && !previousTokenIsWithinGracePeriod) {
+      failures.push({ code: "TOKEN_STALE", message: "This QR token is no longer current. Scan the latest code." });
+    }
+    if (deviceScore === 0) {
+      failures.push({
+        code: student.deviceId ? "DEVICE_MISMATCH" : "DEVICE_NOT_REGISTERED",
+        message: student.deviceId
+          ? "This scan came from a device that does not match your registered device."
+          : "This device is not registered for your account."
+      });
+    }
+    if (distanceMeters > radius) {
+      failures.push({
+        code: "OUTSIDE_GEOFENCE",
+        message: `You are outside the attendance area (${Math.round(distanceMeters)}m away; radius is ${radius}m).`
+      });
+    }
+
+    if (failures.length > 0) {
+      const confidenceScore = Math.max(5, Math.round(deviceScore * 0.5 + geofenceScore * 0.35 + qrTimingScore * 0.15));
       await rejectAttempt(
         403,
-        "OUTSIDE_GEOFENCE",
-        `You are outside the attendance area (${Math.round(distanceMeters)}m away; radius is ${session.radius ?? 40}m).`,
+        failures[0].code,
+        failures.map((failure) => failure.message).join(" "),
         session.id,
-        distanceMeters
+        distanceMeters,
+        {
+          reviewable: true,
+          storedReasonCode: failures.map((failure) => failure.code).join("|"),
+          confidenceScore
+        }
       );
       return;
     }
 
-    // 6. No student can receive more than one mark per session.
+    // No student can receive more than one mark per session.
     const duplicate = await prisma.attendance.findUnique({
       where: { sessionId_studentId: { sessionId: session.id, studentId: student.id } },
       select: { id: true }
@@ -475,7 +510,7 @@ attendanceRouter.get("/sessions/:sessionId/flagged-attempts", requireAuth, requi
     const professor = await prisma.professor.findUnique({ where: { userId: request.user!.user_id }, select: { id: true } });
     const session = professor ? await prisma.attendanceSession.findFirst({
       where: { id: parsedSessionId.data, professorId: professor.id },
-      select: { id: true }
+      select: { id: true, radius: true }
     }) : null;
     if (!session) {
       response.status(404).json({ error: "Attendance session not found" });
@@ -509,8 +544,13 @@ attendanceRouter.get("/sessions/:sessionId/flagged-attempts", requireAuth, requi
         student_name: attempt.student.user.name,
         student_id: attempt.student.studentId,
         reason_code: attempt.reasonCode,
-        reason: attemptReasonLabels[attempt.reasonCode ?? ""] ?? "Rejected scan",
-        details: attempt.reasonMessage,
+        failures: splitReasonCodes(attempt.reasonCode)
+          .filter(isSoftFailureCode)
+          .flatMap((code) => {
+            const heading = professorFailureHeading(code, attempt.distanceMeters, session.radius ?? 40);
+            return heading ? [{ code, heading }] : [];
+          }),
+        confidence_score: attempt.confidenceScore,
         timestamp: attempt.createdAt,
         attempt_count: attempt.attemptCount,
         review_status: attempt.reviewStatus

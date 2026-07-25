@@ -246,6 +246,7 @@ scan_attempts (
   latitude              DOUBLE PRECISION,
   longitude             DOUBLE PRECISION,
   distance_meters       DOUBLE PRECISION,
+  confidence_score      INTEGER,          -- nullable; soft-failure review score only
   review_status         VARCHAR NOT NULL, -- 'pending' | 'accepted' | 'rejected' | 'resolved' | 'not_required'
   reviewed_at           TIMESTAMP,
   reviewed_by_professor_id INTEGER REFERENCES professors(id),
@@ -348,29 +349,47 @@ QR payload (JSON, encoded into the QR image) contains:
 
 ## 9. Attendance Validation Pipeline (Proxy Prevention Layer 3 — the core logic)
 
-Executed server-side, in this exact order, on every scan (`POST /attendance/scan`).
-**Fail fast** — first failed check rejects immediately with a specific, distinct reason:
+Executed server-side on every scan (`POST /attendance/scan`). Hard gates remain
+**fail-fast**: an invalid or undecodable QR (including a bad signature), an
+enrollment/section boundary rejection, and duplicate confirmed attendance reject
+immediately, are audit-only, and never receive a score or professor flag. A
+signed, decodable QR that merely expired or rotated out is not malformed: it can
+still identify its session and is evaluated as a soft QR-timing signal. The
+enrollment rule requires a
+`course_students` row matching **both** the session's `course_id` and `section`.
 
-1. **Token valid?** — signature checks out, well-formed.
-2. **Token current?** — matches the session's current `qr_token`, or its
-   immediately previous token only when it rotated less than **3 seconds** ago.
-   A token from any earlier rotation is stale and rejected.
-3. **Registered device?** — incoming device_id matches student's stored device_id.
-4. **Enrolled in this course AND this exact section?** — student has a
-   `course_students` row matching **both** the session's `course_id` and
-   `section`. ★ A student enrolled in CS101-591 must be rejected from a
-   session started for CS101-287, even though they're enrolled in "the
-   course" generally. This rejection should have a distinct error message
-   from "not enrolled at all" — they're different failure modes worth
-   telling apart during a demo.
-5. **Within geofence?** — Haversine distance between student's reported
-   lat/lng and the session's stored lat/lng is ≤ `radius`.
-6. **Duplicate confirmed attendance?** — no existing `attendance` row for this
-   exact `(session_id, student_id)` pair. Attendance from another session of
-   the same course, including another session on the same day, never blocks it.
-7. **All pass →** write a successful `scan_attempts` row, then insert an
-   `attendance` row with `status = 'present'`, and push
-   live update via Socket.io to the professor's dashboard.
+Once a signed QR identifies a known session and the student is enrolled in that
+exact course-section, all three soft checks are evaluated together, even if one
+has failed:
+
+1. **QR timing** — current token scores 100; the immediately previous token is
+   accepted inside the 3-second grace period and scores 70; any older signed,
+   session-identifying token is stale, scores 20, and remains a reviewable soft
+   failure rather than a malformed-token rejection.
+2. **Registered device** — incoming `device_id` matches the stored device.
+3. **Within geofence** — Haversine distance is at or below the session radius.
+
+Any soft failure still rejects the scan, but all failed soft checks are retained
+on the same audit row. The student receives the existing full explanations for
+the failed checks. The professor sees only concise headings: `Device mismatch`,
+`Stale QR token`, and `Out of range by Xm`, plus a confidence score.
+
+For a failed soft attempt, `scan_attempts.confidence_score` is:
+
+```
+deviceSubScore: 100 when matched, otherwise 0
+geofenceSubScore: 100 within radius; otherwise max(0, 100 - 2 * metersOverRadius)
+qrTimingSubScore: 100 for current token, 70 for grace-period token, 20 for a stale signed token
+
+confidenceScore = max(5, round(
+  deviceSubScore * 0.50 + geofenceSubScore * 0.35 + qrTimingSubScore * 0.15
+))
+```
+
+Clean passes do not store a confidence score. After the hard gates and all soft
+checks pass, the server writes a successful `scan_attempts` row, inserts an
+`attendance` row with `status = 'present'`, and pushes a live update via
+Socket.io.
 
 Every request writes exactly one `scan_attempts` audit row. A failed check
 writes `result = 'failed'`, its distinct reason code/message, and useful scan
@@ -380,12 +399,11 @@ creates confirmed attendance. The professor's Flagged counter is the number of
 distinct students with failed, still-pending `scan_attempts` for that session,
 matching the consolidated review list.
 
-Only technical, potentially overrideable failures appear in Flagged review:
-for example geofence, device, token, or malformed-scan problems. **A failure is
+Only technical, potentially overrideable soft failures appear in Flagged review:
+for example geofence, device, or QR-timing problems. **A failure is
 flag-worthy only when the student is enrolled in that session's exact
-course-section.** This eligibility check is separate from the fail-fast order:
-if a non-enrolled student fails an earlier token or device check, the student
-still receives that first failure reason, but the attempt is audit-only and is
+course-section.** Enrollment is checked before soft scoring, so a non-enrolled
+student is rejected at that hard boundary; their attempt is audit-only and is
 not shown to the professor. Boundary rejections (`NOT_ENROLLED`,
 `SECTION_MISMATCH`, and duplicate attendance) likewise remain in
 `scan_attempts` for audit, but never appear in the professor's Flagged list or

@@ -183,8 +183,8 @@ export interface FlaggedAttemptsResponse {
     student_name: string;
     student_id: string;
     reason_code: string | null;
-    reason: string;
-    details: string | null;
+    failures: Array<{ code: string; heading: string }>;
+    confidence_score: number | null;
     timestamp: string;
     attempt_count: number;
     review_status: "pending";

@@ -165,6 +165,7 @@ model ScanAttempt {
   latitude              Float?    @db.DoublePrecision
   longitude             Float?    @db.DoublePrecision
   distanceMeters        Float?    @map("distance_meters") @db.DoublePrecision
+  confidenceScore       Int?      @map("confidence_score")
   reviewStatus          String    @default("pending") @map("review_status") @db.VarChar
   reviewedAt            DateTime? @map("reviewed_at") @db.Timestamp(6)
   reviewedByProfessorId Int?      @map("reviewed_by_professor_id")
