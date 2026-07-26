@@ -9,6 +9,12 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Yupresence to verify your identity before scanning attendance."
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow Yupresence to scan attendance QR codes."
