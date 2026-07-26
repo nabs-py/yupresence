@@ -1,3 +1,5 @@
+import { useAuthStore } from "../stores/auth-store";
+
 interface ApiErrorResponse {
   code?: string;
   error?: string;
@@ -6,6 +8,37 @@ interface ApiErrorResponse {
 function apiErrorMessage(payload: ApiErrorResponse): string {
   const message = payload.error ?? "Something went wrong. Please try again.";
   return payload.code ? `${payload.code}: ${message}` : message;
+}
+
+async function readApiPayload<T>(response: Response): Promise<T & ApiErrorResponse> {
+  try {
+    return await response.json() as T & ApiErrorResponse;
+  } catch {
+    return {} as T & ApiErrorResponse;
+  }
+}
+
+function clearSessionAfterUnauthorized(token: string): void {
+  const authState = useAuthStore.getState();
+
+  // Ignore an old response that arrives after the user has already started a
+  // different session. signOut clears Zustand synchronously before storage IO.
+  if (authState.token === token) {
+    void authState.signOut();
+  }
+}
+
+async function readAuthenticatedResponse<T>(response: Response, token: string): Promise<T> {
+  const payload = await readApiPayload<T>(response);
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearSessionAfterUnauthorized(token);
+    }
+    throw new Error(apiErrorMessage(payload));
+  }
+
+  return payload;
 }
 
 interface LoginResponse {
@@ -243,7 +276,7 @@ async function request<T>(path: string, body: object): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  const payload = (await response.json()) as T & ApiErrorResponse;
+  const payload = await readApiPayload<T>(response);
 
   if (!response.ok) {
     throw new Error(apiErrorMessage(payload));
@@ -256,13 +289,7 @@ async function authenticatedGet<T>(path: string, token: string): Promise<T> {
   const response = await fetch(`${getApiUrl()}${path}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
-  const payload = (await response.json()) as T & ApiErrorResponse;
-
-  if (!response.ok) {
-    throw new Error(apiErrorMessage(payload));
-  }
-
-  return payload;
+  return readAuthenticatedResponse<T>(response, token);
 }
 
 async function authenticatedPatch<T>(path: string, body: object, token: string): Promise<T> {
@@ -271,13 +298,7 @@ async function authenticatedPatch<T>(path: string, body: object, token: string):
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  const payload = (await response.json()) as T & ApiErrorResponse;
-
-  if (!response.ok) {
-    throw new Error(apiErrorMessage(payload));
-  }
-
-  return payload;
+  return readAuthenticatedResponse<T>(response, token);
 }
 
 async function requestWithToken<T>(path: string, body: object, token: string): Promise<T> {
@@ -286,13 +307,7 @@ async function requestWithToken<T>(path: string, body: object, token: string): P
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  const payload = (await response.json()) as T & ApiErrorResponse;
-
-  if (!response.ok) {
-    throw new Error(apiErrorMessage(payload));
-  }
-
-  return payload;
+  return readAuthenticatedResponse<T>(response, token);
 }
 
 export function login(email: string, password: string): Promise<LoginResponse> {
@@ -360,7 +375,10 @@ export async function exportProfessorAttendanceCsv(
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!response.ok) {
-    const payload = await response.json() as ApiErrorResponse;
+    const payload = await readApiPayload<ApiErrorResponse>(response);
+    if (response.status === 401) {
+      clearSessionAfterUnauthorized(token);
+    }
     throw new Error(apiErrorMessage(payload));
   }
 

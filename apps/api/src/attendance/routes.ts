@@ -10,6 +10,7 @@ import { broadcastAttendanceState, endSessionRealtime, getAttendanceCounters, pr
 import { prisma } from "../prisma/client.js";
 import { haversineDistanceMeters } from "./geofence.js";
 import { nonReviewableFailureCodes } from "./review-policy.js";
+import { scanRateLimiter } from "../security/rate-limit.js";
 
 const attendanceRouter = Router();
 
@@ -192,7 +193,7 @@ attendanceRouter.get("/active", requireAuth, requireRole("professor"), async (re
   }
 });
 
-attendanceRouter.post("/scan", requireAuth, requireRole("student"), async (request, response, next) => {
+attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimiter, async (request, response, next) => {
   try {
     const student = await prisma.student.findUnique({ where: { userId: request.user!.user_id } });
     if (!student) {

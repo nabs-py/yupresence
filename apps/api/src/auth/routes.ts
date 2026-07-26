@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "./middleware.js";
 import { prisma } from "../prisma/client.js";
 import { getJwtSecret } from "./jwt.js";
 import { loginSchema, signupSchema } from "./validation.js";
+import { loginRateLimiter, signupRateLimiter } from "../security/rate-limit.js";
 
 const authRouter = Router();
 const passwordSaltRounds = 12;
@@ -32,7 +33,7 @@ function getUniqueConflict(error: Prisma.PrismaClientKnownRequestError) {
 }
 
 // Kept for admin tooling only; no anonymous account creation path exists.
-authRouter.post("/signup", requireAuth, requireRole("admin"), async (request, response, next) => {
+authRouter.post("/signup", requireAuth, requireRole("admin"), signupRateLimiter, async (request, response, next) => {
   const parsed = signupSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -97,7 +98,7 @@ authRouter.post("/signup", requireAuth, requireRole("admin"), async (request, re
   }
 });
 
-authRouter.post("/login", async (request, response, next) => {
+authRouter.post("/login", loginRateLimiter, async (request, response, next) => {
   const parsed = loginSchema.safeParse(request.body);
 
   if (!parsed.success) {

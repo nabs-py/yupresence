@@ -55,10 +55,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     return session;
   },
   signOut: async () => {
+    // Clear in-memory auth first. Local logout must not depend on storage or
+    // network success, otherwise an invalid server token can trap the user.
+    set({ token: null, role: null });
     try {
       await SecureStore.deleteItemAsync(authTokenStorageKey);
-    } finally {
-      set({ token: null, role: null });
+    } catch (error) {
+      // The app is already signed out in memory. Storage failure must never
+      // block the route back to sign-in.
+      console.warn("Unable to remove the stored secure session.", error);
     }
   }
 }));

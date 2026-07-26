@@ -300,6 +300,11 @@ retained for display and context, but does not determine the warning tier.
    app remembers login across restarts.
 6. `POST /auth/signup` still exists as a backend route — it's just never
    called from a public mobile screen. Only the Admin panel calls it.
+7. Logout is local-first: the app clears its Zustand session and attempts
+   SecureStore deletion without waiting for a server response. Any
+   authenticated API response with HTTP 401 performs the same local clear and
+   routes the user to sign-in, including after token expiry or JWT-secret
+   rotation.
 
 ---
 
@@ -579,6 +584,26 @@ Two services in `docker-compose.yml` (frontend runs natively via Expo, not conta
 1. `postgres` — Postgres 16, persistent volume, exposes 5432
 2. `api` — Node/Express API (built via `apps/api/Dockerfile`), exposes 3000,
    depends on postgres being healthy first
+
+### Local environment and baseline API protections
+
+- Copy root `.env.example` to root `.env` before running Docker Compose. It
+  must define a strong local `POSTGRES_PASSWORD` and `JWT_SECRET`; `.env` is
+  gitignored and must never be committed. Docker Compose injects both values
+  into Postgres and the API's `DATABASE_URL`.
+- `apps/api/.env.example` documents the matching variables needed only when
+  running the API directly outside Docker.
+- `TRUST_PROXY` stays `false` for direct local Docker access. Set it to `1`
+  only behind one known hosting reverse proxy that supplies
+  `X-Forwarded-For`; this lets Express use the real client IP without trusting
+  spoofable forwarding headers on direct connections.
+- The API uses Helmet's standard security headers.
+- Rate limits are enforced in-process: login is 10 attempts per normalized
+  attempted email and client IP per 15 minutes; authenticated signup is 10
+  attempts per admin account per 15 minutes; attendance scans are 15 attempts
+  per authenticated student per 2 minutes. The combined login key prevents
+  one student on a shared hotspot from locking out another account. A limit
+  returns HTTP 429 with a generic retry-later message.
 
 ---
 

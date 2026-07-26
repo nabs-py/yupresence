@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 
@@ -13,11 +14,17 @@ import { professorsRouter } from "./professors/routes.js";
 const app = express();
 const server = createServer(app);
 const port = Number(process.env.PORT ?? 3000);
+const trustProxy = process.env.TRUST_PROXY;
 const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:8081,http://localhost:8082,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+if (trustProxy && trustProxy !== "false") {
+  app.set("trust proxy", /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+}
+
+app.use(helmet());
 app.use(
   cors({
     origin(origin, callback) {
