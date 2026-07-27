@@ -4,10 +4,20 @@
     "slug": "yupresence",
     "version": "1.0.0",
     "scheme": "yupresence",
+    "ios": {
+      "bundleIdentifier": "com.nabs.yupresence"
+    },
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-dev-client",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow YuPresence to use Face ID to verify your identity when marking attendance."
+        }
+      ],
       [
         "expo-camera",
         {

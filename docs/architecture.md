@@ -46,7 +46,7 @@ section can't accidentally (or deliberately) check into someone else's class.
 
 **Explicitly NOT in scope for MVP** (deferred, do not build unless told
 otherwise): BLE mesh verification, Wi-Fi heatmaps, accelerometer/"ghost
-scan" detection, voice check-in, facial verification, ML-based defaulter
+scan" detection, voice check-in, server-run facial recognition or photo matching, ML-based defaulter
 prediction, LMS integration. The warning system is simple threshold-based,
 not predictive.
 
@@ -322,6 +322,26 @@ retained for display and context, but does not determine the warning tier.
   from a different device is rejected as `DEVICE_MISMATCH` and appears in the
   professor's reviewable flagged-attempts list; it never re-binds the account.
 - "Change device" is a future/admin-assisted flow — not built in MVP.
+
+### 7.1 Mandatory biometric scan gate
+
+- Every student scan attempt begins with an OS biometric prompt through Expo
+  LocalAuthentication. Camera/location preparation and QR submission remain
+  disabled until that prompt succeeds.
+- Device passcode fallback is disabled. A cancelled or failed prompt stays
+  entirely client-side, sends no `/attendance/scan` request, and therefore
+  creates no `scan_attempts` row or professor flag.
+- Devices without enrolled biometrics are blocked with guidance to enable Face
+  ID, Touch ID, fingerprint, or Android face unlock in system Settings.
+- Every explicit retry requires a new biometric prompt; authentication is not
+  cached per login or attendance session.
+- This layer addresses a gap device binding cannot: another person holding the
+  student's already-bound, already-unlocked phone cannot scan on the student's
+  behalf without authenticating as the device owner.
+- iOS sets `NSFaceIDUsageDescription` through the
+  `expo-local-authentication` config plugin. Android's `USE_BIOMETRIC` and
+  legacy `USE_FINGERPRINT` permissions are supplied automatically by the
+  library manifest.
 
 ---
 
@@ -647,7 +667,7 @@ Two services in `docker-compose.yml` (frontend runs natively via Expo, not conta
 - ML/predictive defaulter detection (current system is threshold-based only)
 - BLE cross-verification, Wi-Fi heatmaps, accelerometer "ghost scan" checks
 - Voice check-in / accessibility alt-flow
-- Facial verification
+- Server-run facial recognition or photo matching
 - LMS/SSO integration
 - Self-service device-change flow
 - Public self-registration (accounts are always admin/seed-provisioned)
