@@ -27,6 +27,7 @@ export default function AdminHomeScreen() {
     <NavButton label="Course management" onPress={() => router.push("/(admin)/courses")} styles={styles} />
     <NavButton label="Professor management" onPress={() => router.push("/(admin)/professors")} styles={styles} />
     <NavButton label="Student management" onPress={() => router.push("/(admin)/students")} styles={styles} />
+    <NavButton label="Student Appeals" onPress={() => router.push("/(admin)/appeals")} styles={styles} />
     <NavButton label="Profile & settings" onPress={() => router.push("/(admin)/profile")} styles={styles} />
   </ScrollView>;
 }

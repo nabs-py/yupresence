@@ -15,9 +15,10 @@ model User {
   role      String    @db.VarChar
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
 
-  student   Student?
-  professor Professor?
-  admin     Admin?
+  student         Student?
+  professor       Professor?
+  admin           Admin?
+  resolvedAppeals Appeal[]   @relation("AppealResolver")
 
   @@map("users")
 }
@@ -36,6 +37,7 @@ model Student {
   notifications  Notification[]
   warnings       AttendanceWarning[]
   scanAttempts   ScanAttempt[]
+  appeals        Appeal[]
 
   @@map("students")
 }
@@ -135,6 +137,7 @@ model AttendanceSession {
   professor    Professor?    @relation(fields: [professorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   attendance   Attendance[]
   scanAttempts ScanAttempt[]
+  appeals      Appeal[]
 
   @@map("attendance_sessions")
 }
@@ -152,6 +155,27 @@ model Attendance {
 
   @@unique([sessionId, studentId])
   @@map("attendance")
+}
+
+model Appeal {
+  id               Int       @id @default(autoincrement())
+  sessionId        Int       @map("session_id")
+  studentId        Int       @map("student_id")
+  message          String    @db.Text
+  attachmentPath   String?   @map("attachment_path") @db.VarChar
+  status           String    @default("pending") @db.VarChar
+  resolvedByRole   String?   @map("resolved_by_role") @db.VarChar
+  resolvedByUserId Int?      @map("resolved_by_user_id")
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamp(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  session        AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student        Student           @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  resolvedByUser User?             @relation("AppealResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([sessionId, studentId])
+  @@index([status, createdAt])
+  @@map("appeals")
 }
 
 model ScanAttempt {

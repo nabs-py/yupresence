@@ -23,6 +23,9 @@ export default function ProfessorAnalyticsScreen() {
         <Pressable onPress={() => router.replace("/(professor)/reports")} style={styles.reportNavButton}>
           <Text style={styles.reportNavLabel}>Past Sessions</Text>
         </Pressable>
+        <Pressable onPress={() => router.replace({ pathname: "/(professor)/reports", params: { view: "appeals" } })} style={styles.reportNavButton}>
+          <Text style={styles.reportNavLabel}>Appeals</Text>
+        </Pressable>
         <Pressable style={[styles.reportNavButton, styles.reportNavButtonActive]}>
           <Text style={styles.reportNavLabelActive}>Analytics</Text>
         </Pressable>

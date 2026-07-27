@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme, useAppTheme } from "../../constants/theme";
@@ -10,6 +11,7 @@ export default function StudentHomeScreen() {
   const appTheme = useAppTheme();
   const styles = createStyles(appTheme);
   const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
   const profileQuery = useQuery({
     queryKey: ["student", "profile"],
     queryFn: () => getStudentProfile(token as string),
@@ -20,6 +22,13 @@ export default function StudentHomeScreen() {
     queryFn: () => getStudentAttendance(token as string),
     enabled: Boolean(token)
   });
+
+  useFocusEffect(useCallback(() => {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["student", "profile"] }),
+      queryClient.invalidateQueries({ queryKey: ["student", "attendance"] })
+    ]);
+  }, [queryClient]));
 
   if (profileQuery.isLoading || attendanceQuery.isLoading) {
     return (

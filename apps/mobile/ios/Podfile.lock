@@ -208,6 +208,8 @@ PODS:
     - ZXingObjC/PDF417
   - ExpoCrypto (15.0.9):
     - ExpoModulesCore
+  - ExpoDocumentPicker (14.0.8):
+    - ExpoModulesCore
   - ExpoFileSystem (19.0.23):
     - ExpoModulesCore
   - ExpoFont (14.0.12):
@@ -251,6 +253,8 @@ PODS:
   - ExpoSharing (14.0.8):
     - ExpoModulesCore
   - ExpoSplashScreen (31.0.13):
+    - ExpoModulesCore
+  - ExpoWebBrowser (15.0.11):
     - ExpoModulesCore
   - EXUpdatesInterface (2.0.0):
     - ExpoModulesCore
@@ -2234,6 +2238,7 @@ DEPENDENCIES:
   - ExpoAsset (from `../../../node_modules/expo/node_modules/expo-asset/ios`)
   - ExpoCamera (from `../node_modules/expo-camera/ios`)
   - ExpoCrypto (from `../node_modules/expo-crypto/ios`)
+  - ExpoDocumentPicker (from `../../../node_modules/expo-document-picker/ios`)
   - ExpoFileSystem (from `../../../node_modules/expo-file-system/ios`)
   - ExpoFont (from `../../../node_modules/expo-font/ios`)
   - ExpoHead (from `../../../node_modules/expo-router/ios`)
@@ -2245,6 +2250,7 @@ DEPENDENCIES:
   - ExpoSecureStore (from `../../../node_modules/expo-secure-store/ios`)
   - ExpoSharing (from `../../../node_modules/expo-sharing/ios`)
   - ExpoSplashScreen (from `../../../node_modules/expo-splash-screen/ios`)
+  - ExpoWebBrowser (from `../../../node_modules/expo-web-browser/ios`)
   - EXUpdatesInterface (from `../../../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../../../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../../../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
@@ -2348,6 +2354,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-camera/ios"
   ExpoCrypto:
     :path: "../node_modules/expo-crypto/ios"
+  ExpoDocumentPicker:
+    :path: "../../../node_modules/expo-document-picker/ios"
   ExpoFileSystem:
     :path: "../../../node_modules/expo-file-system/ios"
   ExpoFont:
@@ -2370,6 +2378,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-sharing/ios"
   ExpoSplashScreen:
     :path: "../../../node_modules/expo-splash-screen/ios"
+  ExpoWebBrowser:
+    :path: "../../../node_modules/expo-web-browser/ios"
   EXUpdatesInterface:
     :path: "../../../node_modules/expo-updates-interface/ios"
   FBLazyVector:
@@ -2532,6 +2542,7 @@ SPEC CHECKSUMS:
   ExpoAsset: 9e5a7c9c0a9fb83ad5b2bb365141f2bd7f289b66
   ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoCrypto: e2a2c4c748aac8485e5675f027b7901f511d43ff
+  ExpoDocumentPicker: 7cd9e71a0f66fb19eb0a586d6f26eee1284692e0
   ExpoFileSystem: a8e7fb1e958471764fb48d281cf9fa81a9e4d77c
   ExpoFont: dfb7c572372b610da45b41e3b436321fd6a97215
   ExpoHead: 33924c5829f9a3f98a5bd432d23c0e02ef64afcc
@@ -2543,6 +2554,7 @@ SPEC CHECKSUMS:
   ExpoSecureStore: d32f751874a2ceb5aaeebeb3578e165c1ba2b24a
   ExpoSharing: 0d983394ed4a80334bab5a0d5384f75710feb7e8
   ExpoSplashScreen: bc3cffefca2716e5f22350ca109badd7e50ec14d
+  ExpoWebBrowser: 970dd4c64c29c955c3af664c8058ba768a4c9187
   EXUpdatesInterface: 5adf50cb41e079c861da6d9b4b954c3db9a50734
   FBLazyVector: e95a291ad2dadb88e42b06e0c5fb8262de53ec12
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172

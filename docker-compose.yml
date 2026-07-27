@@ -30,6 +30,9 @@ services:
     ports:
       - "3000:3000"
       - "5555:5555"
+    volumes:
+      - api_uploads:/app/apps/api/uploads
 
 volumes:
   postgres_data:
+  api_uploads:

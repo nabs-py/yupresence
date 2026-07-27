@@ -100,7 +100,7 @@ the existing warning callouts remain visible only for active warnings.
 Sign-in is the only screen in the `(auth)` group — there is no sign-up screen
 on mobile.
 
-Professor Reports has four deliberately separate flows:
+Professor Reports has five deliberately separate flows:
 
 - **Past sessions:** five ended sessions per page, newest first by default, with
   a combined sort/filter sheet for Newest/Oldest order, an exact
@@ -112,6 +112,10 @@ Professor Reports has four deliberately separate flows:
   students appear together but with clearly distinct severity labels. Each row
   shows only the student's name, university student ID, course-section, and raw
   absence count.
+- **Appeals:** the Reports switcher is ordered **Past Sessions → Appeals →
+  Analytics**. Professors see appeals only for sessions they own, with the
+  student name/university ID, course-section, Gregorian session date, message,
+  optional authenticated attachment, and pending-only Accept/Reject controls.
 - **Analytics:** a separate summary screen displays each taught course-section
   independently, including aggregate attendance rate across ended sessions,
   sessions held, enrolled students, and Excellent/Safe/Warning/Critical counts.
@@ -123,6 +127,14 @@ Professor Reports has four deliberately separate flows:
 All Reports data is scoped from the authenticated professor's exact
 `course_professors(course_id, section)` assignments. Sections of the same
 course are never merged.
+
+Students may appeal only an **absent, ended** session from their course
+history within **seven days** of the session date. Present sessions never
+expose an Appeal action. Older absences display **Appeal window closed**;
+the API enforces the same deadline so it cannot be bypassed. A submitted appeal
+replaces that action with its pending/accepted/rejected status, preventing
+duplicate submissions for the same absence. Admin has a dedicated **Student
+Appeals** management view containing every appeal system-wide.
 
 ---
 
@@ -232,6 +244,21 @@ attendance (
   manual_override BOOLEAN DEFAULT FALSE, -- true when accepted by professor
   timestamp     TIMESTAMP DEFAULT NOW(),
   UNIQUE(session_id, student_id)    -- prevents duplicate marks
+);
+
+-- appeals: one student can appeal one absent attendance session once
+appeals (
+  id                  SERIAL PRIMARY KEY,
+  session_id          INTEGER REFERENCES attendance_sessions(id),
+  student_id          INTEGER REFERENCES students(id),
+  message             TEXT NOT NULL,
+  attachment_path     VARCHAR, -- nullable server-local file name
+  status              VARCHAR DEFAULT 'pending', -- pending | accepted | rejected
+  resolved_by_role    VARCHAR, -- professor | admin; null while pending
+  resolved_by_user_id INTEGER REFERENCES users(id),
+  resolved_at         TIMESTAMP,
+  created_at          TIMESTAMP DEFAULT NOW(),
+  UNIQUE(session_id, student_id)
 );
 
 -- scan_attempts: append-only audit trail; retries are intentionally allowed
@@ -491,6 +518,38 @@ ended session in Reports and choose **Mark Present**. This bypasses automated sc
 counters when the session is active. Pending and Flagged lists always show the
 student's name and university `student_id`, never internal IDs.
 
+### 9B. Attendance Appeals
+
+Students can submit exactly one appeal for an absent, ended session from their
+course history, but only during the seven-day window following that session.
+The explanation is required; an optional image or PDF is limited to 10 MB and
+stored in the API's local `uploads/appeals` directory. Attachments are never
+public static files: student owner, owning professor, or an admin must
+authenticate to receive a 60-second signed inline view link. Images preview
+in-app; PDFs open in the device's browser/PDF viewer, never via the share
+sheet.
+
+Professors can review only appeals for their own sessions; admins can review
+all appeals. Both roles see the same data and can take the same action:
+
+- **Accept:** atomically claims the still-pending appeal, upserts
+  `attendance.status = 'present'` with `manual_override = TRUE`, records the
+  resolver role/user/time, and sends the student an acceptance notification.
+  Because absence totals are derived from ended sessions without confirmed
+  attendance, this immediately reduces the relevant course-section absence
+  count.
+- **Reject:** atomically claims the still-pending appeal, records the resolver
+  role/user/time, leaves attendance absent, and sends a rejection notification.
+
+The database update is conditional on `status = 'pending'`. If professor and
+admin act concurrently, only one update succeeds; the other receives an
+already-resolved response and can no longer perform an action. Resolved appeals
+show the resolver and status to both parties.
+
+Local uploads are sufficient for local development. Before hosting on Render,
+move attachments to durable object storage: Render's local filesystem is
+ephemeral and uploaded files can disappear after a deploy or restart.
+
 All mobile dates and timestamps are rendered using the Gregorian calendar,
 explicitly independent of the device's system calendar preference.
 
@@ -561,6 +620,14 @@ Students
   PATCH  /students/device         -- device binding (first login only)
   PATCH  /students/profile/password
 
+Appeals
+  POST   /appeals                  -- student multipart appeal (message + optional image/PDF)
+  GET    /appeals                  -- professor-owned sessions or all admin appeals
+  POST   /appeals/:id/view-link    -- authenticated 60-second signed inline attachment URL
+  GET    /appeals/:id/attachment   -- authenticated attachment download
+  POST   /appeals/:id/accept       -- professor/admin, pending-only atomic resolution
+  POST   /appeals/:id/reject       -- professor/admin, pending-only atomic resolution
+
 Professors / Attendance Sessions
   POST   /attendance/start          -- requires course_id AND section; creates session, begins QR rotation
   POST   /attendance/end            -- closes session
@@ -604,6 +671,9 @@ Two services in `docker-compose.yml` (frontend runs natively via Expo, not conta
 1. `postgres` — Postgres 16, persistent volume, exposes 5432
 2. `api` — Node/Express API (built via `apps/api/Dockerfile`), exposes 3000,
    depends on postgres being healthy first
+   - Docker Compose uses a local `api_uploads` volume for appeal attachments.
+     This is development persistence only; it is not a production storage
+     solution for Render.
 
 ### Local environment and baseline API protections
 

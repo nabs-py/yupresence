@@ -1,17 +1,18 @@
 import { File, Paths } from "expo-file-system";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as Sharing from "expo-sharing";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme, useAppTheme } from "../../constants/theme";
-import { exportProfessorAttendanceCsv, getProfessorReports } from "../../lib/api";
+import { exportProfessorAttendanceCsv, getAppeals, getProfessorReports } from "../../lib/api";
 import { formatGregorianDate, formatGregorianDateTime } from "../../lib/date";
 import { useAuthStore } from "../../stores/auth-store";
 import { useThemeStore } from "../../stores/theme-store";
 import { RetryButton } from "../../components/RetryButton";
+import { AppealReviewList } from "../../components/AppealReviewList";
 
 interface SectionSelection {
   courseId: number;
@@ -49,6 +50,7 @@ export default function ProfessorReportsScreen() {
   const theme = useAppTheme();
   const styles = createStyles(theme);
   const token = useAuthStore((state) => state.token);
+  const params = useLocalSearchParams<{ view?: string }>();
   const isDark = useThemeStore((state) => state.isDark);
   const deviceTimezoneOffsetMinutes = new Date().getTimezoneOffset();
   const [filter, setFilter] = useState<ReportsFilter>(defaultReportsFilter);
@@ -58,6 +60,10 @@ export default function ProfessorReportsScreen() {
   const [showExport, setShowExport] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [reportView, setReportView] = useState<"sessions" | "appeals">(params.view === "appeals" ? "appeals" : "sessions");
+  useEffect(() => {
+    if (params.view === "appeals") setReportView("appeals");
+  }, [params.view]);
   const reportsQuery = useInfiniteQuery({
     queryKey: ["professor", "reports", filter.sort, filter.section?.courseId ?? "all", filter.section?.section ?? "all", filter.dateFrom ?? "all", filter.dateTo ?? "all"],
     initialPageParam: 0,
@@ -75,17 +81,29 @@ export default function ProfessorReportsScreen() {
       : undefined,
     enabled: Boolean(token)
   });
+  const appealsQuery = useQuery({
+    queryKey: ["professor", "appeals"],
+    queryFn: () => getAppeals(token as string),
+    enabled: Boolean(token && reportView === "appeals"),
+    refetchInterval: 2_000
+  });
 
-  if (reportsQuery.isLoading || (reportsQuery.isFetching && !reportsQuery.data)) {
+  if (reportView === "sessions" && (reportsQuery.isLoading || (reportsQuery.isFetching && !reportsQuery.data))) {
     return <View style={styles.centered}><ActivityIndicator color={theme.colors.black} /><Text style={styles.body}>Loading reports...</Text></View>;
   }
-  if (reportsQuery.error || !reportsQuery.data) {
+  if (reportView === "sessions" && (reportsQuery.error || !reportsQuery.data)) {
     return <View style={styles.centered}><Text style={styles.title}>Unable to load reports</Text><Text style={styles.body}>Please try again.</Text><RetryButton onPress={() => void reportsQuery.refetch()} /></View>;
   }
+  if (reportView === "appeals" && (appealsQuery.isLoading || (appealsQuery.isFetching && !appealsQuery.data))) {
+    return <View style={styles.centered}><ActivityIndicator color={theme.colors.black} /><Text style={styles.body}>Loading appeals...</Text></View>;
+  }
+  if (reportView === "appeals" && (appealsQuery.error || !appealsQuery.data)) {
+    return <View style={styles.centered}><Text style={styles.title}>Unable to load appeals</Text><Text style={styles.body}>Please try again.</Text><RetryButton onPress={() => void appealsQuery.refetch()} /></View>;
+  }
 
-  const firstPage = reportsQuery.data.pages[0];
+  const firstPage = reportsQuery.data?.pages[0];
   const sections = firstPage?.sections ?? [];
-  const sessions = reportsQuery.data.pages.flatMap((page) => page.recent_sessions);
+  const sessions = reportsQuery.data?.pages.flatMap((page) => page.recent_sessions) ?? [];
   const defaulters = sections.flatMap((section) => section.defaulters.map((student) => ({
     ...student,
     courseCode: section.course_code,
@@ -160,13 +178,20 @@ export default function ProfessorReportsScreen() {
     <>
       <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <View style={styles.reportNav}>
-          <Pressable style={[styles.reportNavButton, styles.reportNavButtonActive]}>
-            <Text style={styles.reportNavLabelActive}>Past Sessions</Text>
+          <Pressable onPress={() => setReportView("sessions")} style={[styles.reportNavButton, reportView === "sessions" && styles.reportNavButtonActive]}>
+            <Text style={reportView === "sessions" ? styles.reportNavLabelActive : styles.reportNavLabel}>Past Sessions</Text>
+          </Pressable>
+          <Pressable onPress={() => setReportView("appeals")} style={[styles.reportNavButton, reportView === "appeals" && styles.reportNavButtonActive]}>
+            <Text style={reportView === "appeals" ? styles.reportNavLabelActive : styles.reportNavLabel}>Appeals</Text>
           </Pressable>
           <Pressable onPress={() => router.push("/(professor)/analytics")} style={styles.reportNavButton}>
             <Text style={styles.reportNavLabel}>Analytics</Text>
           </Pressable>
         </View>
+        {reportView === "appeals" ? <>
+          <Text style={styles.sectionHeading}>Appeals</Text>
+          <AppealReviewList appeals={appealsQuery.data?.appeals ?? []} emptyLabel="No attendance appeals to review." onResolved={() => appealsQuery.refetch()} token={token as string} />
+        </> : <>
         <Text style={styles.sectionHeading}>Past Sessions</Text>
         <View style={styles.sessionGrid}>
           <Pressable onPress={openFilter} style={styles.filterButton}>
@@ -221,6 +246,7 @@ export default function ProfessorReportsScreen() {
             <Text style={styles.exportButtonLabel}>Export CSV</Text>
           </Pressable>
         </View>
+        </>}
       </ScrollView>
 
       <ReportsFilterModal

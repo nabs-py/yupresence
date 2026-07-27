@@ -10,6 +10,7 @@ import { adminRouter } from "./admin/routes.js";
 import { configureAttendanceRealtime, resumeActiveSessionsRealtime } from "./attendance/realtime.js";
 import { studentsRouter } from "./students/routes.js";
 import { professorsRouter } from "./professors/routes.js";
+import { appealsRouter } from "./appeals/routes.js";
 
 const app = express();
 const server = createServer(app);
@@ -50,6 +51,7 @@ app.use("/attendance", attendanceRouter);
 app.use("/students", studentsRouter);
 app.use("/professors", professorsRouter);
 app.use("/admin", adminRouter);
+app.use("/appeals", appealsRouter);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error(error);

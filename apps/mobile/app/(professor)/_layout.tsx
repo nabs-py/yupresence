@@ -1,6 +1,6 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppTheme } from "../../constants/theme";
 import { routeForRole } from "../../lib/auth/routes";
@@ -8,6 +8,7 @@ import { useAuthStore } from "../../stores/auth-store";
 
 export default function ProfessorTabsLayout() {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const role = useAuthStore((state) => state.role);
 
@@ -28,12 +29,12 @@ export default function ProfessorTabsLayout() {
         tabBarShowLabel: false,
         tabBarItemStyle: { minHeight: 48 },
         tabBarIconStyle: { height: 28, width: 28 },
-        tabBarStyle: {
-          backgroundColor: theme.colors.white,
-          borderTopColor: theme.colors.grey200,
-          height: 64,
-          paddingBottom: theme.spacing.sm,
-          paddingTop: theme.spacing.sm
+          tabBarStyle: {
+            backgroundColor: theme.colors.white,
+            borderTopColor: theme.colors.grey200,
+            height: 64 + insets.bottom,
+            paddingBottom: theme.spacing.sm + insets.bottom,
+            paddingTop: theme.spacing.sm
         }
       }}
     >

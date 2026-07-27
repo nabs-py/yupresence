@@ -197,11 +197,18 @@ studentsRouter.get("/courses", requireAuth, requireRole("student"), async (reque
         orderBy: { createdAt: "asc" },
         select: { id: true, createdAt: true }
       });
-      const attendance = await prisma.attendance.findMany({
-        where: { studentId: student.id, sessionId: { in: sessions.map((session) => session.id) } },
-        select: { sessionId: true, status: true }
-      });
+      const [attendance, appeals] = await Promise.all([
+        prisma.attendance.findMany({
+          where: { studentId: student.id, sessionId: { in: sessions.map((session) => session.id) } },
+          select: { sessionId: true, status: true }
+        }),
+        prisma.appeal.findMany({
+          where: { studentId: student.id, sessionId: { in: sessions.map((session) => session.id) } },
+          select: { id: true, sessionId: true, status: true }
+        })
+      ]);
       const statusBySessionId = new Map(attendance.map((row) => [row.sessionId, row.status]));
+      const appealBySessionId = new Map(appeals.map((appeal) => [appeal.sessionId, appeal]));
       const presentCount = sessions.filter((session) => statusBySessionId.get(session.id) === "present").length;
       const warning = calculateAttendanceWarning(sessions.length, presentCount);
 
@@ -214,8 +221,12 @@ studentsRouter.get("/courses", requireAuth, requireRole("student"), async (reque
         absent_count: warning.absenceCount,
         warning_status: warning.status,
         history: sessions.map((session) => ({
+          session_id: session.id,
           date: session.createdAt,
-          status: statusBySessionId.get(session.id) === "present" ? "present" : "absent"
+          status: statusBySessionId.get(session.id) === "present" ? "present" : "absent",
+          appeal: appealBySessionId.get(session.id)
+            ? { appeal_id: appealBySessionId.get(session.id)!.id, status: appealBySessionId.get(session.id)!.status }
+            : null
         }))
       }];
     })).then((rows) => rows.flat());

@@ -30,10 +30,22 @@
           "locationWhenInUsePermission": "Allow Yupresence to verify your attendance location."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "android": {
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.nabs.yupresence"
     }
   }
 }

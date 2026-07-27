@@ -194,10 +194,34 @@ export interface StudentCoursesResponse {
     absent_count: number;
     warning_status: "excellent" | "safe" | "warning" | "critical";
     history: Array<{
+      session_id: number;
       date: string;
       status: "present" | "absent";
+      appeal: { appeal_id: number; status: "pending" | "accepted" | "rejected" } | null;
     }>;
   }>;
+}
+
+export interface AppealResponse {
+  appeal_id: number;
+  session_id: number;
+  student_name: string;
+  student_id: string;
+  course_code: string;
+  course_name: string;
+  section: string;
+  session_date: string | null;
+  message: string;
+  has_attachment: boolean;
+  status: "pending" | "accepted" | "rejected";
+  resolved_by_role: "professor" | "admin" | null;
+  resolved_by_name: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface AppealsResponse {
+  appeals: AppealResponse[];
 }
 
 export interface AttendanceScanResponse {
@@ -306,6 +330,15 @@ async function requestWithToken<T>(path: string, body: object, token: string): P
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
+  });
+  return readAuthenticatedResponse<T>(response, token);
+}
+
+async function requestFormWithToken<T>(path: string, formData: FormData, token: string): Promise<T> {
+  const response = await fetch(`${getApiUrl()}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
   });
   return readAuthenticatedResponse<T>(response, token);
 }
@@ -480,6 +513,35 @@ export function endAttendance(token: string, sessionId: number): Promise<{ sessi
 
 export function getStudentCourses(token: string): Promise<StudentCoursesResponse> {
   return authenticatedGet<StudentCoursesResponse>("/students/courses", token);
+}
+
+export function submitStudentAppeal(
+  token: string,
+  payload: { sessionId: number; message: string; attachment?: { uri: string; name: string; mimeType: string } }
+): Promise<{ appeal: AppealResponse }> {
+  const formData = new FormData();
+  formData.append("session_id", String(payload.sessionId));
+  formData.append("message", payload.message);
+  if (payload.attachment) {
+    formData.append("attachment", {
+      uri: payload.attachment.uri,
+      name: payload.attachment.name,
+      type: payload.attachment.mimeType
+    } as never);
+  }
+  return requestFormWithToken<{ appeal: AppealResponse }>("/appeals", formData, token);
+}
+
+export function getAppeals(token: string, status: "pending" | "accepted" | "rejected" | "all" = "all"): Promise<AppealsResponse> {
+  return authenticatedGet<AppealsResponse>(`/appeals?status=${status}`, token);
+}
+
+export function resolveAppeal(token: string, appealId: number, decision: "accept" | "reject"): Promise<{ appeal: AppealResponse }> {
+  return requestWithToken<{ appeal: AppealResponse }>(`/appeals/${appealId}/${decision}`, {}, token);
+}
+
+export function getAppealViewLink(token: string, appealId: number): Promise<{ url: string; mime_type: string }> {
+  return requestWithToken<{ url: string; mime_type: string }>(`/appeals/${appealId}/view-link`, {}, token);
 }
 
 export function changeStudentPassword(token: string, currentPassword: string, newPassword: string): Promise<{ status: "ok" }> {
