@@ -8,3 +8,7 @@ export const changePasswordSchema = z.object({
 export const registerDeviceSchema = z.object({
   device_id: z.string().trim().min(16).max(255)
 });
+
+export const deviceChangeRequestSchema = z.object({
+  reason: z.string().trim().min(1).max(2_000)
+});

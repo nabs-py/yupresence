@@ -13,6 +13,7 @@ export default function SignInScreen() {
   const theme = useAppTheme();
   const styles = createStyles(theme);
   const setSession = useAuthStore((state) => state.setSession);
+  const logoutMessage = useAuthStore((state) => state.logoutMessage);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +61,7 @@ export default function SignInScreen() {
             secureTextEntry
             value={password}
           />
+          {logoutMessage ? <Text style={styles.info}>{logoutMessage}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable disabled={isSubmitting} onPress={handleSubmit} style={[styles.primaryButton, isSubmitting && styles.disabledButton]}>
             <Text style={styles.primaryButtonLabel}>{isSubmitting ? "Signing In..." : "Sign In"}</Text>
@@ -91,6 +93,10 @@ const createStyles = (theme: ReturnType<typeof useAppTheme>) => StyleSheet.creat
   },
   error: {
     color: theme.colors.red,
+    ...theme.typography.label
+  },
+  info: {
+    color: theme.colors.orange,
     ...theme.typography.label
   },
   primaryButton: {

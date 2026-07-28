@@ -18,13 +18,13 @@ async function readApiPayload<T>(response: Response): Promise<T & ApiErrorRespon
   }
 }
 
-function clearSessionAfterUnauthorized(token: string): void {
+function clearSessionAfterUnauthorized(token: string, payload: ApiErrorResponse): void {
   const authState = useAuthStore.getState();
 
   // Ignore an old response that arrives after the user has already started a
   // different session. signOut clears Zustand synchronously before storage IO.
   if (authState.token === token) {
-    void authState.signOut();
+    void authState.signOut(payload.code === "DEVICE_RESET_APPROVED" ? "Your device change request was approved. Please sign in again to continue." : undefined);
   }
 }
 
@@ -33,7 +33,7 @@ async function readAuthenticatedResponse<T>(response: Response, token: string): 
 
   if (!response.ok) {
     if (response.status === 401) {
-      clearSessionAfterUnauthorized(token);
+      clearSessionAfterUnauthorized(token, payload);
     }
     throw new Error(apiErrorMessage(payload));
   }
@@ -58,6 +58,12 @@ export interface StudentProfileResponse {
   student_id: string;
   department: string | null;
   semester: number | null;
+  device_change_request: {
+    id: number;
+    status: "pending" | "granted" | "rejected";
+    granted_at: string | null;
+    created_at: string;
+  } | null;
 }
 
 export interface ProfessorProfileResponse {
@@ -222,6 +228,18 @@ export interface AppealResponse {
 
 export interface AppealsResponse {
   appeals: AppealResponse[];
+}
+
+export interface DeviceChangeRequestResponse {
+  request_id: number;
+  student_name: string;
+  student_id: string;
+  student_email: string;
+  reason: string;
+  status: "pending" | "granted" | "rejected";
+  resolved_at: string | null;
+  granted_at: string | null;
+  created_at: string;
 }
 
 export interface AttendanceScanResponse {
@@ -410,7 +428,7 @@ export async function exportProfessorAttendanceCsv(
   if (!response.ok) {
     const payload = await readApiPayload<ApiErrorResponse>(response);
     if (response.status === 401) {
-      clearSessionAfterUnauthorized(token);
+      clearSessionAfterUnauthorized(token, payload);
     }
     throw new Error(apiErrorMessage(payload));
   }
@@ -513,6 +531,18 @@ export function endAttendance(token: string, sessionId: number): Promise<{ sessi
 
 export function getStudentCourses(token: string): Promise<StudentCoursesResponse> {
   return authenticatedGet<StudentCoursesResponse>("/students/courses", token);
+}
+
+export function submitDeviceChangeRequest(token: string, reason: string): Promise<{ request: { id: number; status: "pending"; reason: string; created_at: string } }> {
+  return requestWithToken("/students/device-change-requests", { reason }, token);
+}
+
+export function getAdminDeviceChangeRequests(token: string, status: "pending" | "granted" | "rejected" | "all" = "pending"): Promise<{ requests: DeviceChangeRequestResponse[] }> {
+  return authenticatedGet<{ requests: DeviceChangeRequestResponse[] }>(`/admin/device-change-requests?status=${status}`, token);
+}
+
+export function resolveAdminDeviceChangeRequest(token: string, requestId: number, decision: "grant" | "reject"): Promise<{ status: "granted" | "rejected" }> {
+  return requestWithToken(`/admin/device-change-requests/${requestId}/${decision}`, {}, token);
 }
 
 export function submitStudentAppeal(

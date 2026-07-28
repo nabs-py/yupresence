@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useAppTheme } from "../../constants/theme";
@@ -28,6 +28,7 @@ export default function AdminHomeScreen() {
     <NavButton label="Professor management" onPress={() => router.push("/(admin)/professors")} styles={styles} />
     <NavButton label="Student management" onPress={() => router.push("/(admin)/students")} styles={styles} />
     <NavButton label="Student Appeals" onPress={() => router.push("/(admin)/appeals")} styles={styles} />
+    <NavButton label="Device Change Requests" onPress={() => router.push("/(admin)/device-requests" as Href)} styles={styles} />
     <NavButton label="Profile & settings" onPress={() => router.push("/(admin)/profile")} styles={styles} />
   </ScrollView>;
 }

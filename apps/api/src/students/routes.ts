@@ -1,10 +1,11 @@
 import bcrypt from "bcrypt";
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../auth/middleware.js";
 import { calculateAttendanceWarning } from "../attendance/warnings.js";
 import { prisma } from "../prisma/client.js";
-import { changePasswordSchema, registerDeviceSchema } from "./validation.js";
+import { changePasswordSchema, deviceChangeRequestSchema, registerDeviceSchema } from "./validation.js";
 
 const studentsRouter = Router();
 
@@ -20,15 +21,58 @@ studentsRouter.get("/profile", requireAuth, requireRole("student"), async (reque
       return;
     }
 
+    const latestRequest = await prisma.deviceChangeRequest.findFirst({
+      where: { studentId: student.id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true, grantedAt: true, createdAt: true }
+    });
+
     response.json({
       name: student.user.name,
       email: student.user.email,
       role: student.user.role,
       student_id: student.studentId,
       department: student.department,
-      semester: student.semester
+      semester: student.semester,
+      device_change_request: latestRequest
+        ? { id: latestRequest.id, status: latestRequest.status, granted_at: latestRequest.grantedAt, created_at: latestRequest.createdAt }
+        : null
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+studentsRouter.post("/device-change-requests", requireAuth, requireRole("student"), async (request, response, next) => {
+  const parsed = deviceChangeRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Provide a reason up to 2,000 characters." });
+    return;
+  }
+
+  try {
+    const student = await prisma.student.findUnique({ where: { userId: request.user!.user_id }, select: { id: true } });
+    if (!student) {
+      response.status(404).json({ error: "Student profile not found" });
+      return;
+    }
+
+    const pending = await prisma.deviceChangeRequest.findFirst({ where: { studentId: student.id, status: "pending" }, select: { id: true } });
+    if (pending) {
+      response.status(409).json({ error: "A device change request is already pending review." });
+      return;
+    }
+
+    const requestRow = await prisma.deviceChangeRequest.create({
+      data: { studentId: student.id, reason: parsed.data.reason, status: "pending" },
+      select: { id: true, status: true, reason: true, createdAt: true }
+    });
+    response.status(201).json({ request: { id: requestRow.id, status: requestRow.status, reason: requestRow.reason, created_at: requestRow.createdAt } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      response.status(409).json({ error: "A device change request is already pending review." });
+      return;
+    }
     next(error);
   }
 });

@@ -14,15 +14,17 @@ async function ensureSecureStoreAvailable(): Promise<void> {
 interface AuthState {
   token: string | null;
   role: AuthRole | null;
+  logoutMessage: string | null;
   isHydrated: boolean;
   hydrate: () => Promise<void>;
   setSession: (token: string) => Promise<AuthSession>;
-  signOut: () => Promise<void>;
+  signOut: (message?: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   role: null,
+  logoutMessage: null,
   isHydrated: false,
   hydrate: async () => {
     try {
@@ -50,14 +52,14 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     await ensureSecureStoreAvailable();
     await SecureStore.setItemAsync(authTokenStorageKey, token);
-    set({ token: session.token, role: session.role });
+    set({ token: session.token, role: session.role, logoutMessage: null });
 
     return session;
   },
-  signOut: async () => {
+  signOut: async (message) => {
     // Clear in-memory auth first. Local logout must not depend on storage or
     // network success, otherwise an invalid server token can trap the user.
-    set({ token: null, role: null });
+    set({ token: null, role: null, logoutMessage: message ?? null });
     try {
       await SecureStore.deleteItemAsync(authTokenStorageKey);
     } catch (error) {

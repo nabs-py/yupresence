@@ -1,0 +1,7 @@
+** BUILD FAILED **
+
+
+The following build commands failed:
+	CompileC /Users/nabs/Library/Developer/Xcode/DerivedData/yupresence-dhnxoisisouziacmxkcgqyvgekxl/Build/Intermediates.noindex/Pods.build/Debug-iphonesimulator/RNSVG.build/Objects-normal/arm64/RNSVGUse.o /Users/nabs/Desktop/yupresence/apps/mobile/node_modules/react-native-svg/apple/Elements/RNSVGUse.mm normal arm64 objective-c++ com.apple.compilers.llvm.clang.1_0.compiler (in target 'RNSVG' from project 'Pods')
+	Building workspace yupresence with scheme yupresence and configuration Debug
+(2 failures)

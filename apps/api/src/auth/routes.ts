@@ -118,7 +118,8 @@ authRouter.post("/login", loginRateLimiter, async (request, response, next) => {
       return;
     }
 
-    const token = jwt.sign({ user_id: user.id, role: user.role }, getJwtSecret(), { expiresIn: "7d" });
+    const deviceBindingRequired = user.role === "student" && user.student?.deviceId === null;
+    const token = jwt.sign({ user_id: user.id, role: user.role, device_binding_required: deviceBindingRequired }, getJwtSecret(), { expiresIn: "7d" });
     response.json({
       token,
       user: {
@@ -126,7 +127,7 @@ authRouter.post("/login", loginRateLimiter, async (request, response, next) => {
         email: user.email,
         role: user.role,
         // The mobile app uses this only during a newly completed sign-in.
-        device_binding_required: user.role === "student" && user.student?.deviceId === null
+        device_binding_required: deviceBindingRequired
       }
     });
   } catch (error) {

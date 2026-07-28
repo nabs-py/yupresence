@@ -299,6 +299,17 @@ attendance_warnings (
   attendance_percentage NUMERIC,
   status                VARCHAR   -- 'excellent' | 'safe' | 'warning' | 'critical'
 );
+
+-- device_change_requests: one pending request per student; grants reset binding
+device_change_requests (
+  id          SERIAL PRIMARY KEY,
+  student_id  INTEGER NOT NULL REFERENCES students(id),
+  reason      TEXT NOT NULL,
+  status      VARCHAR DEFAULT 'pending', -- pending | granted | rejected
+  resolved_at TIMESTAMP,
+  granted_at  TIMESTAMP,                 -- starts the 30-day post-grant cooldown
+  created_at  TIMESTAMP DEFAULT NOW()
+);
 ```
 
 Warning tiers (computed, not stored redundantly elsewhere):
@@ -348,7 +359,20 @@ retained for display and context, but does not determine the warning tier.
 - On later logins and every scan, the stored value is compare-only. A scan
   from a different device is rejected as `DEVICE_MISMATCH` and appears in the
   professor's reviewable flagged-attempts list; it never re-binds the account.
-- "Change device" is a future/admin-assisted flow — not built in MVP.
+- Students can submit one pending device-change request from Profile with a
+  reason. Admins review all requests from the Admin panel; there is no
+  professor approval tier.
+- A grant clears the student's `device_id`, records `granted_at`, creates a
+  notification, and causes the next authenticated request made with the old
+  JWT to return HTTP 401 with `code: DEVICE_RESET_APPROVED`. The mobile app
+  handles this through the existing invalid-token recovery path, shows a
+  friendly approval message, clears its local session, and redirects to sign
+  in. The next login binds the new device. A rejection leaves the existing
+  binding unchanged and creates a rejection notification.
+- A granted request creates a 30-day cooldown before the student can submit
+  another request. The cooldown is calculated from `granted_at`, not
+  `created_at`; rejected requests do not create a cooldown. Admins can grant
+  any pending request at any time, including during a displayed cooldown.
 
 ### 7.1 Mandatory biometric scan gate
 
@@ -619,6 +643,7 @@ Students
   GET    /students/attendance
   PATCH  /students/device         -- device binding (first login only)
   PATCH  /students/profile/password
+  POST   /students/device-change-requests -- submit one pending request
 
 Appeals
   POST   /appeals                  -- student multipart appeal (message + optional image/PDF)
@@ -657,6 +682,9 @@ Admin (the only account-creation surface in the app)
   POST   /admin/create-user             -- professor or student account
   POST   /admin/assign-professor        -- course_professors, course_id + professor_id + section
   POST   /admin/enroll-student          -- course_students, course_id + student_id + section
+  GET    /admin/device-change-requests -- pending or all student device requests
+  POST   /admin/device-change-requests/:id/grant
+  POST   /admin/device-change-requests/:id/reject
 ```
 
 All routes except `/auth/login` require a valid JWT. Role-specific routes
@@ -739,7 +767,7 @@ Two services in `docker-compose.yml` (frontend runs natively via Expo, not conta
 - Voice check-in / accessibility alt-flow
 - Server-run facial recognition or photo matching
 - LMS/SSO integration
-- Self-service device-change flow
+- Automatic self-service device rebinding without Admin review
 - Public self-registration (accounts are always admin/seed-provisioned)
 
 ---

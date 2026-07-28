@@ -27,11 +27,12 @@ function isAuthenticatedUser(payload: string | JwtPayload): payload is JwtPayloa
     typeof payload.user_id === "number" &&
     Number.isInteger(payload.user_id) &&
     typeof payload.role === "string" &&
-    roles.includes(payload.role as Role)
+    roles.includes(payload.role as Role) &&
+    (payload.device_binding_required === undefined || typeof payload.device_binding_required === "boolean")
   );
 }
 
-export function requireAuth(request: Request, response: Response, next: NextFunction): void {
+export async function requireAuth(request: Request, response: Response, next: NextFunction): Promise<void> {
   const authorization = request.header("authorization");
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
 
@@ -48,7 +49,16 @@ export function requireAuth(request: Request, response: Response, next: NextFunc
       return;
     }
 
-    request.user = { user_id: payload.user_id, role: payload.role };
+    if (payload.role === "student" && payload.device_binding_required !== true) {
+      const { prisma } = await import("../prisma/client.js");
+      const student = await prisma.student.findUnique({ where: { userId: payload.user_id }, select: { deviceId: true } });
+      if (student && student.deviceId === null) {
+        response.status(401).json({ code: "DEVICE_RESET_APPROVED", error: "Your device change request was approved. Please sign in again to continue." });
+        return;
+      }
+    }
+
+    request.user = { user_id: payload.user_id, role: payload.role, device_binding_required: payload.device_binding_required === true };
     next();
   } catch {
     response.status(401).json({ error: "Invalid or expired authentication token" });

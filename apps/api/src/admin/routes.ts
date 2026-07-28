@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
-import { Router } from "express";
+import { Router, type Response } from "express";
 
 import { requireAuth, requireRole } from "../auth/middleware.js";
 import { changePasswordSchema } from "../students/validation.js";
@@ -109,6 +109,84 @@ adminRouter.get("/catalog", async (_request, response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+adminRouter.get("/device-change-requests", async (request, response, next) => {
+  const status = request.query.status === "all" ? undefined : String(request.query.status ?? "pending");
+  if (status !== undefined && !["pending", "granted", "rejected"].includes(status)) {
+    response.status(400).json({ error: "Invalid device change request status." });
+    return;
+  }
+
+  try {
+    const requests = await prisma.deviceChangeRequest.findMany({
+      where: status ? { status } : undefined,
+      include: { student: { include: { user: { select: { name: true, email: true } } } } },
+      orderBy: { createdAt: "desc" }
+    });
+    response.json({ requests: requests.map((item) => ({
+      request_id: item.id,
+      student_name: item.student.user?.name ?? "Student",
+      student_id: item.student.studentId,
+      student_email: item.student.user?.email ?? "",
+      reason: item.reason,
+      status: item.status,
+      resolved_at: item.resolvedAt,
+      granted_at: item.grantedAt,
+      created_at: item.createdAt
+    })) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+async function resolveDeviceChangeRequest(requestId: number, decision: "granted" | "rejected", response: Response) {
+  const now = new Date();
+  const resolved = await prisma.$transaction(async (transaction) => {
+    const requestRow = await transaction.deviceChangeRequest.findUnique({ where: { id: requestId }, select: { id: true, studentId: true, status: true } });
+    if (!requestRow) return { kind: "not_found" as const };
+    const claimed = await transaction.deviceChangeRequest.updateMany({
+      where: { id: requestId, status: "pending" },
+      data: { status: decision, resolvedAt: now, grantedAt: decision === "granted" ? now : null }
+    });
+    if (claimed.count !== 1) return { kind: "already_resolved" as const };
+    if (decision === "granted") {
+      await transaction.student.update({ where: { id: requestRow.studentId }, data: { deviceId: null } });
+    }
+    return { kind: "resolved" as const, studentId: requestRow.studentId };
+  });
+
+  if (resolved.kind === "not_found") {
+    response.status(404).json({ error: "Device change request not found." });
+    return;
+  }
+  if (resolved.kind === "already_resolved") {
+    response.status(409).json({ error: "This device change request was already resolved." });
+    return;
+  }
+
+  await prisma.notification.create({
+    data: {
+      studentId: resolved.studentId,
+      title: decision === "granted" ? "Device change granted" : "Device change rejected",
+      message: decision === "granted"
+        ? "Your device change request was granted. Log out and sign in again on your new device."
+        : "Your device change request was rejected by an administrator."
+    }
+  });
+  response.json({ status: decision });
+}
+
+adminRouter.post("/device-change-requests/:requestId/grant", async (request, response, next) => {
+  const requestId = Number(request.params.requestId);
+  if (!Number.isInteger(requestId) || requestId <= 0) { response.status(400).json({ error: "Invalid request id." }); return; }
+  try { await resolveDeviceChangeRequest(requestId, "granted", response); } catch (error) { next(error); }
+});
+
+adminRouter.post("/device-change-requests/:requestId/reject", async (request, response, next) => {
+  const requestId = Number(request.params.requestId);
+  if (!Number.isInteger(requestId) || requestId <= 0) { response.status(400).json({ error: "Invalid request id." }); return; }
+  try { await resolveDeviceChangeRequest(requestId, "rejected", response); } catch (error) { next(error); }
 });
 
 adminRouter.post("/create-course", async (request, response, next) => {
