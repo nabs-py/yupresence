@@ -23,7 +23,7 @@ services:
       DATABASE_URL: postgresql://yupresence:${POSTGRES_PASSWORD}@postgres:5432/yupresence?schema=public
       JWT_SECRET: ${JWT_SECRET}
       TRUST_PROXY: ${TRUST_PROXY:-false}
-      CORS_ORIGINS: http://localhost:8081,http://localhost:8082,http://localhost:5173
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy

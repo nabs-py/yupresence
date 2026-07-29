@@ -93,19 +93,30 @@ Open `http://localhost:5555` while that command is running.
 
 ## Professor Web Display
 
-The read-only projector display runs as a separate Vite server. Start the API
-and display in two terminals:
+The Professor Home web app runs as a separate Vite server. It can start and
+end a session with browser location permission, display the live QR/counters,
+and manage Present, Pending, and Flagged students using the same protected API
+routes as the mobile Professor app. Its persistent top navigation includes
+Home, Reports, and Profile. Profile shows professor account details and allows
+password changes; Reports provides Past Sessions with
+filters/PDF export, Appeals with in-app attachment previews, and Analytics.
+Start the API and web app in two terminals:
 
 ```bash
 docker compose up -d --build
 npm run dev:web-display
 ```
 
-Open `http://localhost:5173` and log in with the same professor account used
-on the phone. The page keeps its JWT in memory only, polls for that professor's
-active session, then receives QR rotations, counters, and remaining time over
-Socket.io. Ending the session from the phone returns the page to its waiting
-state automatically.
+Open `http://localhost:5173` and log in as a professor. The page keeps its JWT
+in memory only, polls for the professor's active session, and receives QR
+rotations, counters, and remaining time over Socket.io. A session can be
+started from the web page after granting browser location permission; ending it
+from either web or mobile returns the page to the Home state automatically.
+
+Browser location works on `localhost` because browsers treat it as a secure
+context. If the web app is opened from a different laptop through a plain LAN
+address such as `http://192.168.x.x:5173`, most browsers will block location
+permission; use HTTPS for that cross-device setup.
 
 No environment variable is required when the API is at
 `http://localhost:3000`. If the display is running on another laptop, create

@@ -3,57 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yupresence Classroom Display</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <title>YuPresence Professor</title>
   </head>
   <body>
     <main id="app">
       <section id="login-view" class="login-shell">
-        <form id="login-form" class="login-card">
-          <p class="eyebrow">Yupresence</p>
-          <h1>Classroom display</h1>
-          <p class="muted">Professor login required. This page only displays an active session.</p>
-          <label>Email<input id="email" type="email" autocomplete="username" required /></label>
-          <label>Password<input id="password" type="password" autocomplete="current-password" required /></label>
-          <p id="login-error" class="error" role="alert"></p>
-          <button id="login-button" type="submit">Log in</button>
-        </form>
+        <form id="login-form" class="login-card"><p class="brand-mark">YuPresence</p><h1>Professor Home</h1><p class="muted">Sign in to manage attendance from your browser.</p><label>Email<input id="email" type="email" autocomplete="username" required /></label><label>Password<input id="password" type="password" autocomplete="current-password" required /></label><p id="login-error" class="error" role="alert"></p><button id="login-button" class="button primary full" type="submit">Log in</button></form>
       </section>
 
-      <section id="waiting-view" class="waiting hidden">
-        <p class="eyebrow">Connected as professor</p>
-        <h1>No active session</h1>
-        <p>Start attendance from your phone. This display will connect automatically.</p>
-        <div class="pulse" aria-hidden="true"></div>
-        <button id="waiting-logout" class="secondary" type="button">Sign out</button>
-      </section>
+      <section id="professor-app" class="hidden">
+        <nav id="top-nav" class="top-nav"></nav>
 
-      <section id="session-view" class="session hidden">
-        <header>
-          <div>
-            <p class="eyebrow">Live attendance</p>
-            <h1 id="course-title">Course — Section</h1>
-            <p id="course-name" class="course-name"></p>
-          </div>
-          <div class="connection"><span id="connection-dot"></span><span id="connection-label">Connecting</span></div>
-        </header>
+        <section id="home-view" class="page-shell">
+          <div class="page-heading"><p class="brand-mark">YuPresence</p><h1>Professor Home</h1></div>
+          <section class="home-intro"><h2>Start attendance</h2><p>Select the exact course-section for this class.</p></section>
+          <p id="home-error" class="error" role="alert"></p><div id="assignments-grid" class="assignments-grid"></div>
+        </section>
 
-        <div class="display-grid">
-          <div class="qr-panel">
-            <canvas id="qr-canvas" aria-label="Live attendance QR code"></canvas>
-            <p>Scan with Yupresence</p>
-            <small>Secure code refreshes every 10 seconds</small>
-          </div>
-          <div class="status-panel">
-            <div class="timer-block"><span>Time remaining</span><strong id="remaining-time">00:00</strong></div>
-            <div class="counters">
-              <div><strong id="present-count">0</strong><span>Present</span></div>
-              <div><strong id="pending-count">0</strong><span>Pending</span></div>
-              <div><strong id="flagged-count">0</strong><span>Flagged</span></div>
-            </div>
-          </div>
-        </div>
+        <section id="reports-view" class="page-shell hidden">
+          <div class="reports-layout"><aside class="reports-sidebar card"><p class="brand-mark">Reports</p><button class="side-link active" data-report-tab="sessions" type="button">Past Sessions</button><button class="side-link" data-report-tab="appeals" type="button">Appeals</button><button class="side-link" data-report-tab="analytics" type="button">Analytics</button></aside><main id="reports-content" class="reports-content"></main></div>
+        </section>
+
+        <section id="profile-view" class="page-shell hidden" aria-live="polite"></section>
+
+        <section id="session-view" class="page-shell hidden">
+          <button id="back-to-reports" class="text-button hidden" type="button">← Back to Reports</button>
+          <header class="session-heading"><div><p id="session-eyebrow" class="brand-mark">Live attendance</p><h1 id="course-title">Course — Section</h1><p id="course-name" class="muted"></p></div><div class="session-heading-actions"><div id="connection-state" class="connection"><span id="connection-dot"></span><span id="connection-label">Live</span></div><button id="end-session-button" class="button primary" type="button">End Session</button></div></header>
+          <div id="session-hero" class="display-grid"><div class="qr-panel card"><canvas id="qr-canvas" aria-label="Live attendance QR code"></canvas><p>Scan with YuPresence</p><small>Secure code refreshes every 10 seconds</small></div><div class="status-panel"><div class="timer-card card"><span id="timer-label">Time remaining</span><strong id="remaining-time">00:00</strong></div><div class="counters"><div class="counter-card card"><strong id="present-count">0</strong><span>Present</span></div><div class="counter-card card"><strong id="pending-count">0</strong><span>Pending</span></div><div class="counter-card card"><strong id="flagged-count">0</strong><span>Flagged</span></div></div></div></div>
+          <section class="review-section"><div class="section-heading"><div><h2>Attendance follow-up</h2><p>Review confirmed, pending, and flagged attendance.</p></div><p id="review-error" class="error" role="alert"></p></div><div class="review-grid"><article class="review-panel card"><header><h3>Present <span id="present-list-count">0</span></h3><p>Confirmed attendance</p></header><div id="present-list" class="review-list"></div></article><article class="review-panel card"><header><h3>Pending <span id="pending-list-count">0</span></h3><p>Not checked in yet</p></header><div id="pending-list" class="review-list"></div></article><article class="review-panel card"><header><h3>Flagged <span id="flagged-list-count">0</span></h3><p>Technical attempts to review</p></header><div id="flagged-list" class="review-list"></div></article></div></section>
+        </section>
       </section>
     </main>
+
+    <div id="modal-root" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
