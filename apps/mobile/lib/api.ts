@@ -245,7 +245,7 @@ export interface DeviceChangeRequestResponse {
 export interface AttendanceScanResponse {
   status: "present" | "already_present";
   session: { course_id: number; course_code: string; section: string };
-  distance_meters: number;
+  distance_meters?: number;
 }
 
 export interface ProfessorSessionDetailResponse {
@@ -305,6 +305,8 @@ type SignupPayload =
 export function getApiUrl(): string {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
 
+  console.log(`[YuPresence API DEBUG] EXPO_PUBLIC_API_URL=${apiUrl ?? "<undefined>"}`);
+
   if (!apiUrl) {
     throw new Error("Set EXPO_PUBLIC_API_URL before signing in.");
   }
@@ -312,8 +314,14 @@ export function getApiUrl(): string {
   return apiUrl;
 }
 
+function getRequestUrl(path: string, method: string): string {
+  const url = `${getApiUrl()}${path}`;
+  console.log(`[YuPresence API DEBUG] ${method} ${url}`);
+  return url;
+}
+
 async function request<T>(path: string, body: object): Promise<T> {
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path, "POST"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -328,14 +336,14 @@ async function request<T>(path: string, body: object): Promise<T> {
 }
 
 async function authenticatedGet<T>(path: string, token: string): Promise<T> {
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path, "GET"), {
     headers: { Authorization: `Bearer ${token}` }
   });
   return readAuthenticatedResponse<T>(response, token);
 }
 
 async function authenticatedPatch<T>(path: string, body: object, token: string): Promise<T> {
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path, "PATCH"), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -344,7 +352,7 @@ async function authenticatedPatch<T>(path: string, body: object, token: string):
 }
 
 async function requestWithToken<T>(path: string, body: object, token: string): Promise<T> {
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path, "POST"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -353,7 +361,7 @@ async function requestWithToken<T>(path: string, body: object, token: string): P
 }
 
 async function requestFormWithToken<T>(path: string, formData: FormData, token: string): Promise<T> {
-  const response = await fetch(`${getApiUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path, "POST multipart"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData
@@ -412,17 +420,14 @@ export function getProfessorAnalytics(token: string): Promise<ProfessorAnalytics
   return authenticatedGet<ProfessorAnalyticsResponse>("/attendance/reports/analytics", token);
 }
 
-export async function exportProfessorAttendanceCsv(
+export async function exportProfessorAttendancePdf(
   token: string,
-  selection?: { courseId: number; section: string }
-): Promise<{ csv: string; filename: string }> {
+  selection: { courseId: number; section: string }
+): Promise<{ pdf: Uint8Array; filename: string }> {
   const params = new URLSearchParams();
-  if (selection) {
-    params.set("course_id", String(selection.courseId));
-    params.set("section", selection.section);
-  }
-  const query = params.size ? `?${params.toString()}` : "";
-  const response = await fetch(`${getApiUrl()}/attendance/reports/export${query}`, {
+  params.set("course_id", String(selection.courseId));
+  params.set("section", selection.section);
+  const response = await fetch(getRequestUrl(`/attendance/reports/export/pdf?${params.toString()}`, "GET PDF"), {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!response.ok) {
@@ -434,8 +439,8 @@ export async function exportProfessorAttendanceCsv(
   }
 
   const disposition = response.headers.get("content-disposition") ?? "";
-  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "yupresence-attendance.csv";
-  return { csv: await response.text(), filename };
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "yupresence-absence-report.pdf";
+  return { pdf: new Uint8Array(await response.arrayBuffer()), filename };
 }
 
 export function getProfessorAssignments(token: string): Promise<ProfessorAssignmentsResponse> {

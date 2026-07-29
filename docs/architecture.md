@@ -42,7 +42,7 @@ section can't accidentally (or deliberately) check into someone else's class.
 | Auth | JWT + bcrypt (custom, no third-party auth provider) |
 | DB | PostgreSQL (Docker) |
 | Local dev | Docker Compose (Postgres + backend containers) |
-| Future hosting | Render / Railway / managed Postgres |
+| Deployment | Local Docker development only |
 
 **Explicitly NOT in scope for MVP** (deferred, do not build unless told
 otherwise): BLE mesh verification, Wi-Fi heatmaps, accelerometer/"ghost
@@ -95,7 +95,7 @@ status, not deep navigation. The Student Home keeps a large overall presence
 number as its dominant element: total present sessions divided by total
 sessions across every enrolled course-section. Directly below it, a compact
 row per enrolled course shows the course code and raw absence count for that
-course-section. Warning and Critical rows are visually distinguished, while
+course-section. Warning and Critical / DN rows are visually distinguished, while
 the existing warning callouts remain visible only for active warnings.
 Sign-in is the only screen in the `(auth)` group — there is no sign-up screen
 on mobile.
@@ -108,7 +108,7 @@ Professor Reports has five deliberately separate flows:
   More** preserves all applied options. Selecting a session opens the existing
   detail view with the same Present/Pending/Flagged summary and manual review
   controls as the live session, except no QR is shown.
-- **Attendance watchlist:** Warning (6–7 absences) and Critical (8+ absences)
+- **Attendance watchlist:** Warning (7–9 absences) and Critical / DN (10+ absences)
   students appear together but with clearly distinct severity labels. Each row
   shows only the student's name, university student ID, course-section, and raw
   absence count.
@@ -118,11 +118,17 @@ Professor Reports has five deliberately separate flows:
   optional authenticated attachment, and pending-only Accept/Reject controls.
 - **Analytics:** a separate summary screen displays each taught course-section
   independently, including aggregate attendance rate across ended sessions,
-  sessions held, enrolled students, and Excellent/Safe/Warning/Critical counts.
-- **Export:** a separate chooser exports one taught course-section or all taught
-  sections as CSV. Each ended session is expanded per enrolled student with
-  name, university student ID, Gregorian/ISO session date, and present/absent
-  status. Backend assignment checks prevent cross-section export.
+  sessions held, enrolled students, and Excellent/Safe/Warning/Critical-DN counts.
+- **Export:** a separate chooser exports one taught course-section as an
+  official Al Yamamah University-style PDF. The RTL report has the university
+  logo and bilingual header, Gregorian generation date, term/course/section/
+  activity information, and one aggregate roster row per currently enrolled
+  student. It is never a session-history CSV. The roster includes university
+  ID, name, course status (`منتظم`), raw absences, attendance percentage,
+  department, and the following absence-based fields: **days remaining until
+  denial** is `10 - absences` for 0–6 absences and `-` for 7+; **alert** is
+  `-` for 0–6, `تحذير` for 7–9, and `محروم` for 10+. Backend assignment checks
+  prevent cross-section export.
 
 All Reports data is scoped from the authenticated professor's exact
 `course_professors(course_id, section)` assignments. Sections of the same
@@ -314,9 +320,9 @@ device_change_requests (
 
 Warning tiers (computed, not stored redundantly elsewhere):
 - 0–3 absences → Excellent
-- 4–5 absences → Safe
-- 6–7 absences → Warning (notification created)
-- 8+ absences → Critical (notification created and included in professor defaulter reports)
+- 4–6 absences → Safe
+- 7–9 absences → Warning (notification created on entry)
+- 10+ absences → Critical / DN (Denial; notification created on entry and included in professor watchlist reports)
 
 Absences are calculated per enrolled course-section as total ended sessions
 minus sessions where the student was marked present. Attendance percentage is
@@ -434,16 +440,30 @@ still identify its session and is evaluated as a soft QR-timing signal. The
 enrollment rule requires a
 `course_students` row matching **both** the session's `course_id` and `section`.
 
+The enforced scan order is:
+
+1. Decode and verify that the QR is signed and identifies a real session.
+2. Confirm the student is enrolled in that exact course-section.
+3. Check `(session_id, student_id)` for confirmed attendance. If present,
+   return `already_present` immediately as an audit-only no-op.
+4. Evaluate registered-device match.
+5. Evaluate geofence distance.
+6. Evaluate current, grace-period, or stale QR timing.
+
+Step 3 happens before every soft check. A repeat scan by a confirmed student
+therefore never calculates a confidence score, creates a pending flag, or
+updates professor Flagged counters.
+
 Once a signed QR identifies a known session and the student is enrolled in that
 exact course-section, all three soft checks are evaluated together, even if one
 has failed:
 
-1. **QR timing** — current token scores 100; the immediately previous token is
+1. **Registered device** — incoming `device_id` matches the stored device.
+2. **Within geofence** — Haversine distance is at or below the session radius.
+3. **QR timing** — current token scores 100; the immediately previous token is
    accepted inside the 3-second grace period and scores 70; any older signed,
    session-identifying token is stale, scores 20, and remains a reviewable soft
    failure rather than a malformed-token rejection.
-2. **Registered device** — incoming `device_id` matches the stored device.
-3. **Within geofence** — Haversine distance is at or below the session radius.
 
 Any soft failure still rejects the scan, but all failed soft checks are retained
 on the same audit row. The student receives the existing full explanations for
@@ -570,9 +590,8 @@ admin act concurrently, only one update succeeds; the other receives an
 already-resolved response and can no longer perform an action. Resolved appeals
 show the resolver and status to both parties.
 
-Local uploads are sufficient for local development. Before hosting on Render,
-move attachments to durable object storage: Render's local filesystem is
-ephemeral and uploaded files can disappear after a deploy or restart.
+Local uploads are stored in Docker's `api_uploads` volume for local
+development. A future hosted deployment will need durable object storage.
 
 All mobile dates and timestamps are rendered using the Gregorian calendar,
 explicitly independent of the device's system calendar preference.
@@ -616,10 +635,10 @@ Room/channel convention: one Socket.io room per `session_id`.
 Computed **per student, per course** (aggregating across that student's one
 enrolled section of that course):
 - 0–3 absences → Excellent
-- 4–5 absences → Safe
-- 6–7 absences → Warning (student gets a notification)
-- 8+ absences → Critical (student gets a notification, flagged in professor's
-  defaulter report)
+- 4–6 absences → Safe
+- 7–9 absences → Warning (student gets a notification when entering the tier)
+- 10+ absences → Critical / DN (Denial; student gets a notification when
+  entering the tier and appears in the professor's Attendance Watchlist)
 
 Absences are calculated using **ended sessions only**: total ended sessions in
 the student's enrolled course-section minus ended sessions where the student
@@ -658,7 +677,7 @@ Professors / Attendance Sessions
   POST   /attendance/end            -- closes session
   GET    /attendance/reports        -- 5-row session pages with sort/date/section filters + watchlist
   GET    /attendance/reports/analytics -- aggregate metrics per taught course-section
-  GET    /attendance/reports/export -- scoped CSV for one/all taught course-sections
+  GET    /attendance/reports/export/pdf -- scoped official PDF for one taught course-section
   GET    /attendance/sessions/:id   -- professor-owned session detail and counters
   GET    /attendance/sessions/:id/pending-students
   GET    /attendance/sessions/:id/present-students
@@ -700,8 +719,9 @@ Two services in `docker-compose.yml` (frontend runs natively via Expo, not conta
 2. `api` — Node/Express API (built via `apps/api/Dockerfile`), exposes 3000,
    depends on postgres being healthy first
    - Docker Compose uses a local `api_uploads` volume for appeal attachments.
-     This is development persistence only; it is not a production storage
-     solution for Render.
+     This persists local development uploads across container recreation.
+   - The API image includes Chromium and Noto Arabic fonts so Puppeteer can
+     render the official RTL absence-report PDF locally.
 
 ### Local environment and baseline API protections
 

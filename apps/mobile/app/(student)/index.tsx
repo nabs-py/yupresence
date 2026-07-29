@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { AppTheme, useAppTheme } from "../../constants/theme";
 import { getStudentAttendance, getStudentProfile } from "../../lib/api";
+import { attendanceTierLabel } from "../../lib/attendance";
 import { useAuthStore } from "../../stores/auth-store";
 
 export default function StudentHomeScreen() {
@@ -78,7 +79,7 @@ export default function StudentHomeScreen() {
                   <Text numberOfLines={1} style={[styles.absenceCount, course.warning_status === "warning" && styles.warningText, course.warning_status === "critical" && styles.criticalText]}>
                     {course.absence_count} {course.absence_count === 1 ? "absence" : "absences"}
                   </Text>
-                  {needsAttention ? <Text style={styles.warningTier}>{course.warning_status}</Text> : null}
+                  {needsAttention ? <Text style={styles.warningTier}>{attendanceTierLabel(course.warning_status)}</Text> : null}
                 </View>
               </View>
             );
@@ -113,7 +114,7 @@ export default function StudentHomeScreen() {
             <View key={warning.id} style={styles.warningCard}>
               <Text numberOfLines={2} style={styles.warningTitle}>{warning.course_code} · Section {attendance.courses.find((course) => course.course_id === warning.course_id)?.section ?? ""}</Text>
               <Text style={styles.warningDescription}>
-                {warning.absence_count} absences, {warning.attendance_percentage}% attendance ({warning.status}).
+                {warning.absence_count} absences, {warning.attendance_percentage}% attendance ({attendanceTierLabel(warning.status)}).
               </Text>
             </View>
           ))}

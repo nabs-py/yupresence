@@ -7,9 +7,10 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { AppTheme, useAppTheme } from "../../constants/theme";
-import { exportProfessorAttendanceCsv, getAppeals, getProfessorReports } from "../../lib/api";
+import { exportProfessorAttendancePdf, getAppeals, getProfessorReports } from "../../lib/api";
 import { formatGregorianDate, formatGregorianDateTime } from "../../lib/date";
 import { useAuthStore } from "../../stores/auth-store";
+import { attendanceTierLabel } from "../../lib/attendance";
 import { useThemeStore } from "../../stores/theme-store";
 import { RetryButton } from "../../components/RetryButton";
 import { AppealReviewList } from "../../components/AppealReviewList";
@@ -138,17 +139,17 @@ export default function ProfessorReportsScreen() {
     setShowFilter(false);
   }
 
-  async function exportCsv(selection: SectionSelection | null) {
+  async function exportPdf(selection: SectionSelection) {
     setExportError(null);
     setIsExporting(true);
     try {
-      const result = await exportProfessorAttendanceCsv(token as string, selection ? {
+      const result = await exportProfessorAttendancePdf(token as string, {
         courseId: selection.courseId,
         section: selection.section
-      } : undefined);
+      });
 
       if (Platform.OS === "web") {
-        const url = URL.createObjectURL(new Blob([result.csv], { type: "text/csv;charset=utf-8" }));
+        const url = URL.createObjectURL(new Blob([result.pdf.buffer as ArrayBuffer], { type: "application/pdf" }));
         const link = document.createElement("a");
         link.href = url;
         link.download = result.filename;
@@ -156,14 +157,14 @@ export default function ProfessorReportsScreen() {
         URL.revokeObjectURL(url);
       } else {
         const file = new File(Paths.cache, result.filename);
-        file.write(result.csv);
+        file.write(result.pdf);
         if (!(await Sharing.isAvailableAsync())) {
           throw new Error("File sharing is unavailable on this device.");
         }
         await Sharing.shareAsync(file.uri, {
-          dialogTitle: "Export attendance CSV",
-          mimeType: "text/csv",
-          UTI: "public.comma-separated-values-text"
+          dialogTitle: "Export absence report PDF",
+          mimeType: "application/pdf",
+          UTI: "com.adobe.pdf"
         });
       }
       setShowExport(false);
@@ -226,7 +227,7 @@ export default function ProfessorReportsScreen() {
         ) : sessions.length > 0 ? <Text style={styles.endLabel}>All sessions loaded</Text> : null}
 
         <Text style={styles.sectionHeading}>Attendance Watchlist</Text>
-        {defaulters.length === 0 ? <Text style={styles.empty}>No students are currently in Warning or Critical.</Text> : defaulters.map((student) => (
+        {defaulters.length === 0 ? <Text style={styles.empty}>No students are currently in Warning or Critical / DN.</Text> : defaulters.map((student) => (
           <View key={`${student.courseCode}-${student.section}-${student.student_id}`} style={styles.defaulterCard}>
             <View style={styles.studentMain}>
               <Text numberOfLines={1} style={styles.studentName}>{student.name}</Text>
@@ -235,7 +236,7 @@ export default function ProfessorReportsScreen() {
             </View>
             <View style={[styles.tierBadge, student.status === "critical" ? styles.criticalBadge : styles.warningBadge]}>
               <Text style={[styles.tierLabel, student.status === "critical" ? styles.criticalLabel : styles.warningLabel]}>
-                {student.status === "critical" ? "Critical" : "Warning"}
+                {attendanceTierLabel(student.status)}
               </Text>
             </View>
           </View>
@@ -243,7 +244,7 @@ export default function ProfessorReportsScreen() {
 
         <View style={styles.exportFooter}>
           <Pressable onPress={() => setShowExport(true)} style={styles.exportButton}>
-            <Text style={styles.exportButtonLabel}>Export CSV</Text>
+            <Text style={styles.exportButtonLabel}>Export PDF</Text>
           </Pressable>
         </View>
         </>}
@@ -265,10 +266,10 @@ export default function ProfessorReportsScreen() {
         busy={isExporting}
         error={exportError}
         onClose={() => { if (!isExporting) { setShowExport(false); setExportError(null); } }}
-        onSelect={(selection) => void exportCsv(selection)}
+        onSelect={(selection) => void exportPdf(selection)}
         sections={sections.map((section) => ({ courseId: section.course_id, courseCode: section.course_code, section: section.section }))}
         theme={theme}
-        title="Export attendance"
+        title="Export absence report"
         visible={showExport}
       />
     </>
@@ -386,7 +387,7 @@ function SelectionModal({ busy = false, error, onClose, onSelect, sections, them
   busy?: boolean;
   error?: string | null;
   onClose: () => void;
-  onSelect: (selection: SectionSelection | null) => void;
+  onSelect: (selection: SectionSelection) => void;
   sections: SectionSelection[];
   theme: AppTheme;
   title: string;
@@ -398,12 +399,8 @@ function SelectionModal({ busy = false, error, onClose, onSelect, sections, them
       <Pressable onPress={onClose} style={styles.modalBackdrop}>
         <Pressable onPress={() => undefined} style={styles.modalCard}>
           <Text style={styles.modalTitle}>{title}</Text>
-          <Text style={styles.modalMessage}>Choose one course-section or include everything you teach.</Text>
+          <Text style={styles.modalMessage}>Choose the course-section for this absence report.</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable disabled={busy} onPress={() => onSelect(null)} style={styles.modalOption}>
-            <Text style={styles.modalOptionTitle}>All my sections</Text>
-            <Text style={styles.modalOptionMeta}>Combined, still separated by section</Text>
-          </Pressable>
           {sections.map((section) => (
             <Pressable disabled={busy} key={`${section.courseId}-${section.section}`} onPress={() => onSelect(section)} style={styles.modalOption}>
               <Text style={styles.modalOptionTitle}>{section.courseCode} · Section {section.section}</Text>

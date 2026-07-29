@@ -90,6 +90,14 @@ async function hashPassword(password: string) {
 }
 
 async function main() {
+  // Hashing is deliberately outside the transaction. Hosted databases can
+  // close an interactive transaction while CPU-bound bcrypt work is running.
+  const [adminPasswordHash, professorPasswordHashes, studentPasswordHashes] = await Promise.all([
+    hashPassword(accounts.admin.password),
+    Promise.all(accounts.professors.map((account) => hashPassword(account.password))),
+    Promise.all(accounts.students.map(([, , password]) => hashPassword(password)))
+  ]);
+
   await prisma.$transaction(async (db) => {
     await db.attendance.deleteMany();
     await db.scanAttempt.deleteMany();
@@ -109,19 +117,19 @@ async function main() {
       data: {
         name: accounts.admin.name,
         email: accounts.admin.email,
-        password: await hashPassword(accounts.admin.password),
+        password: adminPasswordHash,
         role: "admin"
       }
     });
     await db.admin.create({ data: { userId: adminUser.id, adminCode: accounts.admin.adminCode } });
 
     const professors = [];
-    for (const account of accounts.professors) {
+    for (const [index, account] of accounts.professors.entries()) {
       const user = await db.user.create({
         data: {
           name: account.name,
           email: account.email,
-          password: await hashPassword(account.password),
+          password: professorPasswordHashes[index],
           role: "professor"
         }
       });
@@ -133,9 +141,9 @@ async function main() {
     }
 
     const students = [];
-    for (const [name, email, password, studentId, department, semester] of accounts.students) {
+    for (const [index, [name, email, _password, studentId, department, semester]] of accounts.students.entries()) {
       const user = await db.user.create({
-        data: { name, email, password: await hashPassword(password), role: "student" }
+        data: { name, email, password: studentPasswordHashes[index], role: "student" }
       });
       students.push(
         await db.student.create({ data: { userId: user.id, studentId, department, semester } })
@@ -258,7 +266,7 @@ async function main() {
     }
 
     console.log("Seeded 1 admin, 3 professors, 6 students, 3 courses, 6 teaching assignments, 12 enrollments, 25 sessions, and section-matched attendance history.");
-  });
+  }, { maxWait: 10_000, timeout: 60_000 });
 }
 
 main()

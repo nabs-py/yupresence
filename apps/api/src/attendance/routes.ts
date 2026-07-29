@@ -5,12 +5,13 @@ import { z } from "zod";
 
 import { getJwtSecret } from "../auth/jwt.js";
 import { requireAuth, requireRole } from "../auth/middleware.js";
-import { calculateAttendanceWarning } from "./warnings.js";
+import { calculateAttendanceWarning, isVisibleAttendanceWarning } from "./warnings.js";
 import { broadcastAttendanceState, endSessionRealtime, getAttendanceCounters, previousQrTokenGracePeriodMs, startSessionRealtime } from "./realtime.js";
 import { prisma } from "../prisma/client.js";
 import { haversineDistanceMeters } from "./geofence.js";
 import { nonReviewableFailureCodes } from "./review-policy.js";
 import { scanRateLimiter } from "../security/rate-limit.js";
+import { createAbsenceReportPdf } from "./absence-report-pdf.js";
 
 const attendanceRouter = Router();
 
@@ -62,10 +63,8 @@ function localDateBoundary(date: string, timezoneOffsetMinutes: number, endOfDay
 }
 
 const exportQuerySchema = z.object({
-  course_id: z.coerce.number().int().positive().optional(),
-  section: z.string().trim().min(1).max(255).optional()
-}).refine((query) => Boolean(query.course_id) === Boolean(query.section), {
-  message: "course_id and section must be provided together"
+  course_id: z.coerce.number().int().positive(),
+  section: z.string().trim().min(1).max(255)
 });
 
 interface ScanTokenClaims extends JwtPayload {
@@ -109,7 +108,7 @@ async function recordDuplicateScan(input: {
   deviceId: string;
   latitude: number;
   longitude: number;
-  distanceMeters: number;
+  distanceMeters: number | null;
 }) {
   await prisma.scanAttempt.create({
     data: {
@@ -292,20 +291,6 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimi
     });
     const isExactEnrollment = Boolean(courseEnrollment && courseEnrollment.section === session.section);
 
-    const currentTokenMatches = session.status === "active" &&
-      session.qrToken === rawToken &&
-      session.courseId === tokenClaims.course_id &&
-      session.section === tokenClaims.section;
-    const previousTokenIsWithinGracePeriod = Boolean(
-      session.status === "active" &&
-      session.previousQrToken === rawToken &&
-      session.previousQrTokenRotatedAt &&
-      Date.now() - session.previousQrTokenRotatedAt.getTime() <= previousQrTokenGracePeriodMs &&
-      session.courseId === tokenClaims.course_id &&
-      session.section === tokenClaims.section
-    );
-    const qrTimingScore = currentTokenMatches ? 100 : previousTokenIsWithinGracePeriod ? 70 : 20;
-
     if (!courseEnrollment) {
       await rejectAttempt(403, "NOT_ENROLLED", "You are not enrolled in this course.", session.id);
       return;
@@ -320,6 +305,32 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimi
       return;
     }
 
+    // A confirmed attendance mark ends the scan pipeline for this session.
+    // Repeat scans are audit-only and must never become new technical flags.
+    const duplicate = await prisma.attendance.findUnique({
+      where: { sessionId_studentId: { sessionId: session.id, studentId: student.id } },
+      select: { id: true }
+    });
+    if (duplicate) {
+      await recordDuplicateScan({
+        sessionId: session.id,
+        studentId: student.id,
+        deviceId: parsed.data.device_id,
+        latitude: parsed.data.latitude,
+        longitude: parsed.data.longitude,
+        distanceMeters: null
+      });
+      response.json({
+        status: "already_present",
+        session: {
+          course_id: tokenClaims.course_id,
+          course_code: session.course?.courseCode ?? `Course ${tokenClaims.course_id}`,
+          section: tokenClaims.section
+        }
+      });
+      return;
+    }
+
     // The soft checks deliberately all run for an exactly enrolled student.
     // Their combined outcome gives professors enough context to review a flag.
     const distanceMeters = haversineDistanceMeters(
@@ -329,10 +340,20 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimi
     const radius = session.radius ?? 40;
     const deviceScore = student.deviceId && student.deviceId === parsed.data.device_id ? 100 : 0;
     const geofenceScore = distanceMeters <= radius ? 100 : Math.max(0, 100 - 2 * (distanceMeters - radius));
+    const currentTokenMatches = session.status === "active" &&
+      session.qrToken === rawToken &&
+      session.courseId === tokenClaims.course_id &&
+      session.section === tokenClaims.section;
+    const previousTokenIsWithinGracePeriod = Boolean(
+      session.status === "active" &&
+      session.previousQrToken === rawToken &&
+      session.previousQrTokenRotatedAt &&
+      Date.now() - session.previousQrTokenRotatedAt.getTime() <= previousQrTokenGracePeriodMs &&
+      session.courseId === tokenClaims.course_id &&
+      session.section === tokenClaims.section
+    );
+    const qrTimingScore = currentTokenMatches ? 100 : previousTokenIsWithinGracePeriod ? 70 : 20;
     const failures: Array<{ code: string; message: string }> = [];
-    if (!currentTokenMatches && !previousTokenIsWithinGracePeriod) {
-      failures.push({ code: "TOKEN_STALE", message: "This QR token is no longer current. Scan the latest code." });
-    }
     if (deviceScore === 0) {
       failures.push({
         code: student.deviceId ? "DEVICE_MISMATCH" : "DEVICE_NOT_REGISTERED",
@@ -346,6 +367,9 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimi
         code: "OUTSIDE_GEOFENCE",
         message: `You are outside the attendance area (${Math.round(distanceMeters)}m away; radius is ${radius}m).`
       });
+    }
+    if (!currentTokenMatches && !previousTokenIsWithinGracePeriod) {
+      failures.push({ code: "TOKEN_STALE", message: "This QR token is no longer current. Scan the latest code." });
     }
 
     if (failures.length > 0) {
@@ -362,32 +386,6 @@ attendanceRouter.post("/scan", requireAuth, requireRole("student"), scanRateLimi
           confidenceScore
         }
       );
-      return;
-    }
-
-    // No student can receive more than one mark per session.
-    const duplicate = await prisma.attendance.findUnique({
-      where: { sessionId_studentId: { sessionId: session.id, studentId: student.id } },
-      select: { id: true }
-    });
-    if (duplicate) {
-      await recordDuplicateScan({
-        sessionId: session.id,
-        studentId: student.id,
-        deviceId: parsed.data.device_id,
-        latitude: parsed.data.latitude,
-        longitude: parsed.data.longitude,
-        distanceMeters
-      });
-      response.json({
-        status: "already_present",
-        session: {
-          course_id: tokenClaims.course_id,
-          course_code: session.course?.courseCode ?? `Course ${tokenClaims.course_id}`,
-          section: tokenClaims.section
-        },
-        distance_meters: Math.round(distanceMeters)
-      });
       return;
     }
 
@@ -1070,7 +1068,7 @@ attendanceRouter.get("/reports", requireAuth, requireRole("professor"), async (r
             }
           });
           const warning = calculateAttendanceWarning(sessions.length, presentSessions);
-          if (warning.status !== "warning" && warning.status !== "critical") {
+          if (!isVisibleAttendanceWarning(warning.status)) {
             return [];
           }
 
@@ -1203,12 +1201,7 @@ attendanceRouter.get("/reports/analytics", requireAuth, requireRole("professor")
   }
 });
 
-function escapeCsv(value: string | number): string {
-  const text = String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-attendanceRouter.get("/reports/export", requireAuth, requireRole("professor"), async (request, response, next) => {
+attendanceRouter.get("/reports/export/pdf", requireAuth, requireRole("professor"), async (request, response, next) => {
   const parsedQuery = exportQuerySchema.safeParse(request.query);
   if (!parsedQuery.success) {
     response.status(400).json({ error: "Invalid export filter", details: parsedQuery.error.flatten() });
@@ -1225,65 +1218,65 @@ attendanceRouter.get("/reports/export", requireAuth, requireRole("professor"), a
     const assignments = await prisma.courseProfessor.findMany({
       where: {
         professorId: professor.id,
-        ...(parsedQuery.data.course_id ? {
-          courseId: parsedQuery.data.course_id,
-          section: parsedQuery.data.section
-        } : {})
+        courseId: parsedQuery.data.course_id,
+        section: parsedQuery.data.section
       },
-      include: { course: { select: { id: true, courseCode: true, courseName: true } } },
+      include: { course: { select: { id: true, courseCode: true, courseName: true, semester: true } } },
       orderBy: [{ courseId: "asc" }, { section: "asc" }]
     });
-    if (parsedQuery.data.course_id && assignments.length === 0) {
+    if (assignments.length === 0) {
       response.status(403).json({ error: "You are not assigned to this course-section" });
       return;
     }
 
-    const rows: Array<Array<string | number>> = [[
-      "Course Code", "Course Name", "Section", "Session Date", "Student Name", "Student ID", "Status"
-    ]];
-    for (const assignment of assignments) {
-      if (!assignment.courseId || !assignment.course) continue;
-      const [sessions, enrollments] = await Promise.all([
-        prisma.attendanceSession.findMany({
-          where: { courseId: assignment.courseId, section: assignment.section, status: "ended" },
-          select: { id: true, createdAt: true },
-          orderBy: { createdAt: "asc" }
-        }),
-        prisma.courseStudent.findMany({
-          where: { courseId: assignment.courseId, section: assignment.section },
-          include: { student: { include: { user: { select: { name: true } } } } },
-          orderBy: { student: { studentId: "asc" } }
-        })
-      ]);
-      const attendance = sessions.length ? await prisma.attendance.findMany({
-        where: { sessionId: { in: sessions.map((session) => session.id) }, status: "present" },
-        select: { sessionId: true, studentId: true }
-      }) : [];
-      const presentKeys = new Set(attendance.map((row) => `${row.sessionId}:${row.studentId}`));
-
-      for (const session of sessions) {
-        for (const enrollment of enrollments) {
-          if (!enrollment.student?.user || enrollment.studentId === null) continue;
-          rows.push([
-            assignment.course.courseCode,
-            assignment.course.courseName,
-            assignment.section,
-            session.createdAt?.toISOString() ?? "",
-            enrollment.student.user.name,
-            enrollment.student.studentId,
-            presentKeys.has(`${session.id}:${enrollment.studentId}`) ? "present" : "absent"
-          ]);
-        }
-      }
+    const assignment = assignments[0];
+    if (!assignment.courseId || !assignment.course) {
+      response.status(404).json({ error: "Course-section not found" });
+      return;
     }
 
-    const suffix = parsedQuery.data.course_id
-      ? `${assignments[0]?.course?.courseCode ?? "section"}-${parsedQuery.data.section}`
-      : "all-sections";
-    const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n");
-    response.setHeader("Content-Type", "text/csv; charset=utf-8");
-    response.setHeader("Content-Disposition", `attachment; filename="yupresence-${suffix}.csv"`);
-    response.send(`\uFEFF${csv}`);
+    const [sessions, enrollments] = await Promise.all([
+      prisma.attendanceSession.findMany({
+        where: { courseId: assignment.courseId, section: assignment.section, status: "ended" },
+        select: { id: true }
+      }),
+      prisma.courseStudent.findMany({
+        where: { courseId: assignment.courseId, section: assignment.section },
+        include: { student: { include: { user: { select: { name: true } } } } },
+        orderBy: { student: { studentId: "asc" } }
+      })
+    ]);
+    const attendance = sessions.length ? await prisma.attendance.findMany({
+      where: { sessionId: { in: sessions.map((session) => session.id) }, status: "present" },
+      select: { studentId: true }
+    }) : [];
+    const presentByStudent = new Map<number, number>();
+    for (const row of attendance) {
+      if (row.studentId !== null) presentByStudent.set(row.studentId, (presentByStudent.get(row.studentId) ?? 0) + 1);
+    }
+    const pdf = await createAbsenceReportPdf({
+      courseCode: assignment.course.courseCode,
+      courseName: assignment.course.courseName,
+      section: assignment.section,
+      semester: assignment.course.semester,
+      generatedAt: new Date(),
+      students: enrollments.flatMap((enrollment) => {
+        if (enrollment.studentId === null || !enrollment.student?.user) return [];
+        const warning = calculateAttendanceWarning(sessions.length, presentByStudent.get(enrollment.studentId) ?? 0);
+        return [{
+          studentId: enrollment.student.studentId,
+          name: enrollment.student.user.name,
+          department: enrollment.student.department,
+          absenceCount: warning.absenceCount,
+          attendancePercentage: warning.attendancePercentage
+        }];
+      })
+    });
+
+    const suffix = `${assignment.course.courseCode}-${assignment.section}`.replace(/[^a-zA-Z0-9-]/g, "_");
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `attachment; filename="yupresence-absence-${suffix}.pdf"`);
+    response.send(pdf);
   } catch (error) {
     next(error);
   }

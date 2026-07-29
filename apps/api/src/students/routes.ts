@@ -143,6 +143,10 @@ studentsRouter.get("/attendance", requireAuth, requireRole("student"), async (re
       );
       const presentSessionsForCourse = courseSessions.filter((session) => presentSessionIds.has(session.id)).length;
       const warning = calculateAttendanceWarning(courseSessions.length, presentSessionsForCourse);
+      const previousWarning = await prisma.attendanceWarning.findUnique({
+        where: { studentId_courseId: { studentId: student.id, courseId: enrollment.courseId } },
+        select: { status: true }
+      });
 
       await prisma.attendanceWarning.upsert({
         where: { studentId_courseId: { studentId: student.id, courseId: enrollment.courseId } },
@@ -160,15 +164,19 @@ studentsRouter.get("/attendance", requireAuth, requireRole("student"), async (re
         }
       });
 
-      if (warning.status === "warning" || warning.status === "critical") {
-        const message = `Your ${enrollment.course.courseCode}-${enrollment.section} attendance has ${warning.absenceCount} absences (${warning.attendancePercentage}%).`;
+      const enteredWarning = warning.status === "warning" && previousWarning?.status !== "warning" && previousWarning?.status !== "critical";
+      const enteredCritical = warning.status === "critical" && previousWarning?.status !== "critical";
+      if (enteredWarning || enteredCritical) {
+        const tierLabel = warning.status === "critical" ? "Critical / DN" : "Warning";
+        const title = warning.status === "critical" ? "Attendance Critical / DN" : "Attendance warning";
+        const message = `Your ${enrollment.course.courseCode}-${enrollment.section} attendance reached ${tierLabel} with ${warning.absenceCount} absences (${warning.attendancePercentage}%).`;
         const existingNotification = await prisma.notification.findFirst({
-          where: { studentId: student.id, title: "Attendance warning", message }
+          where: { studentId: student.id, title, message }
         });
 
         if (!existingNotification) {
           await prisma.notification.create({
-            data: { studentId: student.id, title: "Attendance warning", message }
+            data: { studentId: student.id, title, message }
           });
         }
       }

@@ -52,7 +52,9 @@ export default function ProfessorHomeScreen() {
         : 0
     });
 
-    const socket = io(getApiUrl(), { auth: { token }, transports: ["websocket"] });
+    const socketUrl = getApiUrl();
+    console.log(`[YuPresence SOCKET DEBUG] connecting to ${socketUrl}`);
+    const socket = io(socketUrl, { auth: { token }, transports: ["websocket"] });
     socket.on("connect", () => socket.emit("attendance:join", { session_id: activeSession.session_id }));
     socket.on("attendance:update", (update: LiveSessionState) => {
       if (update.session_id === activeSession.session_id) {

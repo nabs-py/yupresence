@@ -51,7 +51,7 @@ export default function ProfessorAnalyticsScreen() {
             <Tier label="Excellent" value={section.tiers.excellent} theme={theme} />
             <Tier label="Safe" value={section.tiers.safe} theme={theme} />
             <Tier label="Warning" value={section.tiers.warning} theme={theme} />
-            <Tier label="Critical" value={section.tiers.critical} theme={theme} strong />
+            <Tier label="Critical / DN" value={section.tiers.critical} theme={theme} strong />
           </View>
         </View>
       ))}

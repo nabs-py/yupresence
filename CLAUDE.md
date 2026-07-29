@@ -21,7 +21,7 @@ feature scope. If this file and that file ever conflict, ask me — don't guess.
 
 ## Design system — Apple-inspired, non-negotiable across every screen
 - Palette: black, white, and a small set of greys only. No accent colors
-  except for status states (e.g. red for "Critical" warning, done sparingly).
+  except for status states (e.g. red for "Critical / DN" warning, done sparingly).
 - Typography: use "Inter" (via `expo-font`) as the base font, NOT the RN
   default system font — set this up once in Phase 5 and reference it
   everywhere. Headlines are large and bold (Apple Health/Fitness style —
