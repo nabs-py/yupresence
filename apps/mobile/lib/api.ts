@@ -305,8 +305,6 @@ type SignupPayload =
 export function getApiUrl(): string {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
 
-  console.log(`[YuPresence API DEBUG] EXPO_PUBLIC_API_URL=${apiUrl ?? "<undefined>"}`);
-
   if (!apiUrl) {
     throw new Error("Set EXPO_PUBLIC_API_URL before signing in.");
   }
@@ -316,7 +314,6 @@ export function getApiUrl(): string {
 
 function getRequestUrl(path: string, method: string): string {
   const url = `${getApiUrl()}${path}`;
-  console.log(`[YuPresence API DEBUG] ${method} ${url}`);
   return url;
 }
 
